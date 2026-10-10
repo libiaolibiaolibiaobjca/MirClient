@@ -43,6 +43,21 @@ public class GameScene : IScene
     // 场景多实体管理 (NPC、怪物、其他玩家)
     private readonly List<MapEntity> _entities = new();
 
+    // 背包与装备管理器
+    private readonly InventoryManager _inv = new();
+    private bool _showBag = false;
+    private bool _showEquip = false;
+
+    // 鼠标双击检测时钟
+    private double _lastBagClickTime = 0;
+    private int _lastBagClickIndex = -1;
+    private double _lastEquipClickTime = 0;
+    private int _lastEquipClickSlot = -1;
+
+    // 地表掉落物结构
+    private record GroundItem(Item Item, Vector2 TilePos, float SpawnTime);
+    private readonly List<GroundItem> _groundItems = new();
+
     private static bool IsOneShotAction(HumanActionType action) => action switch
     {
         HumanActionType.Attack or HumanActionType.HeavyHit or HumanActionType.BigHit or 
@@ -95,8 +110,9 @@ public class GameScene : IScene
             _chatLogs.Add($"[离线模式] 当前以本地体验模式运行 (区服: {_config.ServerName})。");
         }
 
+        SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
-        _chatLogs.Add("[系统] 调试功能: [F11] 实时切换色彩解码模式；[F8/F9] 动态换发型与武器！");
+        _chatLogs.Add("[系统] 快捷面板: [F9] 打开经典40格包裹；[F10] 打开角色装备与属性面板；[F11] 切换色彩模式。");
 
         // 写入资源诊断日志 client_diagnostic.log
         try
@@ -204,12 +220,16 @@ public class GameScene : IScene
             _chatLogs.Add($"[外观切换] 发型已切换至: {hairDesc}");
         }
 
-        // F9: 切换武器
+        // F9: 开关包裹背包
         if (Raylib.IsKeyPressed(KeyboardKey.F9))
         {
-            _weaponId = (_weaponId + 1) % 6; // 0:空手, 1:木剑, 2:乌木剑, 3:青铜剑, 4:八荒, 5:裁决之杖
-            string weaponDesc = _weaponId switch { 0 => "空手赤拳", 1 => "新手木剑", 2 => "乌木剑", 3 => "青铜剑", 4 => "八荒刀", 5 => "裁决之杖", _ => $"武器{_weaponId}" };
-            _chatLogs.Add($"[外观切换] 武器已切换至: {weaponDesc}");
+            _showBag = !_showBag;
+        }
+
+        // F10: 开关角色状态与装备
+        if (Raylib.IsKeyPressed(KeyboardKey.F10))
+        {
+            _showEquip = !_showEquip;
         }
 
         bool isOneShot = IsOneShotAction(_currentAction);
@@ -293,6 +313,23 @@ public class GameScene : IScene
         // 摄像机平滑跟随
         Vector2 targetPixel = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
         _cameraPixelPos = Vector2.Lerp(_cameraPixelPos, targetPixel, 10f * dt);
+
+        // 自动拾取脚下地面战利品
+        lock (_groundItems)
+        {
+            for (int i = _groundItems.Count - 1; i >= 0; i--)
+            {
+                var gi = _groundItems[i];
+                if (Vector2.Distance(_playerTilePos, gi.TilePos) < 0.75f)
+                {
+                    if (_inv.AddItem(gi.Item))
+                    {
+                        _chatLogs.Add($"[拾取] 获得【{gi.Item.Name}】！已存入包裹。");
+                        _groundItems.RemoveAt(i);
+                    }
+                }
+            }
+        }
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.F2))
         {
@@ -424,6 +461,10 @@ public class GameScene : IScene
         string modeStr = $"[F11: 切换色彩模式] 当前: {(int)WilLoader.ActiveColorMode} - {WilLoader.ActiveColorMode}";
         Raylib.DrawRectangle(8, 8, 380, 24, new Color(0, 0, 0, 200));
         FontManager.DrawTextWithShadow(modeStr, 14, 13, 12, Color.Gold, Color.Black);
+
+        // 5. 渲染 F9 背包物品栏与 F10 角色装备状态窗口
+        if (_showBag) RenderInventoryWindow(screenW, screenH);
+        if (_showEquip) RenderEquipmentWindow(screenW, screenH);
     }
 
     private void RenderMapViewport(int viewportW, int viewportH)
@@ -527,6 +568,25 @@ public class GameScene : IScene
             }
         }
 
+        // 【Pass 4: 地面战利品与光芒 (Ground Items)】
+        lock (_groundItems)
+        {
+            foreach (var gi in _groundItems)
+            {
+                Vector2 rel = gi.TilePos - _playerTilePos;
+                Vector2 itemPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+                if (itemPixel.X < -60 || itemPixel.X > viewportW + 60 || itemPixel.Y < -60 || itemPixel.Y > viewportH + 60)
+                    continue;
+
+                // 闪烁金色光芒与物品品名
+                float time = (float)Raylib.GetTime();
+                float glow = 0.6f + 0.4f * MathF.Sin(time * 5f);
+                Color glowColor = new(255, (int)(215 * glow), 0, 255);
+                Raylib.DrawCircleLines((int)itemPixel.X, (int)itemPixel.Y, 8, glowColor);
+                FontManager.DrawTextWithShadow(gi.Item.Name, (int)itemPixel.X - 16, (int)itemPixel.Y - 14, 11, Color.Gold, Color.Black);
+            }
+        }
+
         // 2.5D 视口实体深度排序 (Y-Sorting): 脚底 Y 越小越先画，近景遮挡远景
         var renderItems = new List<(float Y, Action Draw)>();
 
@@ -604,6 +664,20 @@ public class GameScene : IScene
                 if (target.IsDead)
                 {
                     _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +100");
+
+                    // 掉落地面物品
+                    Item drop = Random.Shared.Next(4) switch
+                    {
+                        0 => Item.CreateEbonySword(),
+                        1 => Item.CreateHeavyArmor(),
+                        2 => Item.CreateJudgmentMace(),
+                        _ => Item.CreateRedPotion(3)
+                    };
+                    lock (_groundItems)
+                    {
+                        _groundItems.Add(new GroundItem(drop, target.TilePos, (float)Raylib.GetTime()));
+                    }
+                    _chatLogs.Add($"[掉落] 地面出现战利品【{drop.Name}】！走近即可拾取。");
                 }
             }
             else if (target.Type == EntityType.Npc)
@@ -883,8 +957,8 @@ public class GameScene : IScene
         // 4 个经典大圆钮依次为：包裹、状态、行会、退出
         (string name, int centerX, int centerY, Action action)[] nativeButtons =
         {
-            ("包裹", boardX + 718, boardY + 115, () => _chatLogs.Add("[系统] 包裹窗口快捷键: F9")),
-            ("状态", boardX + 750, boardY + 115, () => _chatLogs.Add("[系统] 角色状态快捷键: F10")),
+            ("包裹", boardX + 718, boardY + 115, () => _showBag = !_showBag),
+            ("状态", boardX + 750, boardY + 115, () => _showEquip = !_showEquip),
             ("行会", boardX + 782, boardY + 115, () => _chatLogs.Add("[系统] 行会窗口快捷键: G")),
             ("退出", boardX + 814, boardY + 115, () => _engine.SwitchToLoginScene())
         };
@@ -1114,5 +1188,262 @@ public class GameScene : IScene
     public void Dispose()
     {
         _chatLogs.Clear();
+    }
+
+    private void SyncEquippedAppearance()
+    {
+        _weaponId = _inv.EquippedWeaponShape;
+        _dressId = _inv.EquippedDressShape;
+    }
+
+    private void RenderInventoryWindow(int screenW, int screenH)
+    {
+        int winW = 270;
+        int winH = 350;
+        int winX = screenW - winW - 20;
+        int winY = screenH - 140 - winH - 10;
+        Vector2 mousePos = Raylib.GetMousePosition();
+        double now = Raylib.GetTime();
+
+        // 窗口背景与金色浮雕框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(16, 14, 12, 245));
+        Raylib.DrawRectangleLines(winX, winY, winW, winH, Color.Gold);
+
+        // 标题栏
+        Raylib.DrawRectangle(winX, winY, winW, 26, new Color(42, 34, 22, 255));
+        FontManager.DrawTextWithShadow("【 随身包裹 (F9) 】", winX + 10, winY + 6, 12, Color.Gold, Color.Black);
+
+        // 关闭按钮 [X]
+        Rectangle closeRect = new(winX + winW - 22, winY + 4, 18, 18);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeRect);
+        Raylib.DrawRectangleRec(closeRect, closeHover ? Color.Maroon : new Color(28, 20, 15, 255));
+        FontManager.DrawText("X", winX + winW - 17, winY + 6, 12, closeHover ? Color.White : Color.Gray);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showBag = false;
+            return;
+        }
+
+        // 40 格背包网格 (6 列 x 7 行)
+        int cols = 6;
+        int slotSize = 38;
+        int spacing = 3;
+        int gridStartX = winX + 13;
+        int gridStartY = winY + 34;
+
+        Item? hoveredItem = null;
+
+        for (int i = 0; i < InventoryManager.BAG_CAPACITY; i++)
+        {
+            int col = i % cols;
+            int row = i / cols;
+            int slotX = gridStartX + col * (slotSize + spacing);
+            int slotY = gridStartY + row * (slotSize + spacing);
+            Rectangle slotRect = new(slotX, slotY, slotSize, slotSize);
+
+            bool isHover = Raylib.CheckCollisionPointRec(mousePos, slotRect);
+            Item? item = _inv.BagItems[i];
+
+            // 槽位底框
+            Raylib.DrawRectangleRec(slotRect, new Color(24, 20, 16, 220));
+            Raylib.DrawRectangleLinesEx(slotRect, 1, isHover ? Color.Yellow : new Color(80, 68, 45, 180));
+
+            if (item != null)
+            {
+                // 物品展示：色泽区分类型
+                Color nameColor = item.Type switch
+                {
+                    ItemType.Weapon => Color.Gold,
+                    ItemType.Dress => Color.SkyBlue,
+                    ItemType.Potion => Color.Pink,
+                    _ => Color.White
+                };
+
+                // 绘制物品名称简写
+                string shortName = item.Name.Length > 2 ? item.Name.Substring(0, 2) : item.Name;
+                FontManager.DrawText(shortName, slotX + 7, slotY + 11, 12, nameColor);
+
+                // 数量角标
+                if (item.Count > 1)
+                {
+                    string countStr = $"{item.Count}";
+                    FontManager.DrawText(countStr, slotX + slotSize - 12, slotY + slotSize - 12, 10, Color.Lime);
+                }
+
+                if (isHover)
+                {
+                    hoveredItem = item;
+
+                    // 鼠标点击判定 (双击穿戴或使用)
+                    if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        if (now - _lastBagClickTime < 0.35 && _lastBagClickIndex == i)
+                        {
+                            // 触发双击
+                            if (item.Type == ItemType.Potion)
+                            {
+                                if (_inv.UsePotion(i, out int hp, out int mp))
+                                {
+                                    _hp = Math.Min(MAX_HP, _hp + hp);
+                                    _mp = Math.Min(MAX_MP, _mp + mp);
+                                    _chatLogs.Add($"[使用] 服用【{item.Name}】，生命恢复+{hp}，魔法恢复+{mp}！");
+                                }
+                            }
+                            else
+                            {
+                                // 穿戴装备
+                                string eqName = item.Name;
+                                if (_inv.EquipItem(i))
+                                {
+                                    SyncEquippedAppearance();
+                                    _chatLogs.Add($"[换装] 穿戴了【{eqName}】！纸娃娃模型实时更新。");
+                                }
+                            }
+                            _lastBagClickIndex = -1;
+                        }
+                        else
+                        {
+                            _lastBagClickTime = now;
+                            _lastBagClickIndex = i;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 浮动 Tips 渲染在最上层
+        if (hoveredItem != null)
+        {
+            RenderItemTooltip(hoveredItem, (int)mousePos.X, (int)mousePos.Y);
+        }
+    }
+
+    private void RenderEquipmentWindow(int screenW, int screenH)
+    {
+        int winW = 250;
+        int winH = 350;
+        int winX = 20;
+        int winY = screenH - 140 - winH - 10;
+        Vector2 mousePos = Raylib.GetMousePosition();
+        double now = Raylib.GetTime();
+
+        // 窗口背景与金色浮雕框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(16, 14, 12, 245));
+        Raylib.DrawRectangleLines(winX, winY, winW, winH, Color.Gold);
+
+        // 标题栏
+        Raylib.DrawRectangle(winX, winY, winW, 26, new Color(42, 34, 22, 255));
+        FontManager.DrawTextWithShadow("【 角色状态 (F10) 】", winX + 10, winY + 6, 12, Color.Gold, Color.Black);
+
+        // 关闭按钮 [X]
+        Rectangle closeRect = new(winX + winW - 22, winY + 4, 18, 18);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeRect);
+        Raylib.DrawRectangleRec(closeRect, closeHover ? Color.Maroon : new Color(28, 20, 15, 255));
+        FontManager.DrawText("X", winX + winW - 17, winY + 6, 12, closeHover ? Color.White : Color.Gray);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showEquip = false;
+            return;
+        }
+
+        // 角色基本信息
+        FontManager.DrawTextWithShadow($"角色: {_playerName} (战士)", winX + 12, winY + 34, 12, Color.Yellow, Color.Black);
+
+        // 8 大装备槽位布局 (2 列 x 4 行)
+        (EquipSlot slot, string label, int x, int y)[] slots =
+        {
+            (EquipSlot.Dress, "衣服", winX + 15, winY + 56),
+            (EquipSlot.Weapon, "武器", winX + 130, winY + 56),
+            (EquipSlot.Helmet, "头盔", winX + 15, winY + 98),
+            (EquipSlot.Necklace, "项链", winX + 130, winY + 98),
+            (EquipSlot.ArmringL, "左手镯", winX + 15, winY + 140),
+            (EquipSlot.ArmringR, "右手镯", winX + 130, winY + 140),
+            (EquipSlot.RingL, "左戒指", winX + 15, winY + 182),
+            (EquipSlot.RingR, "右戒指", winX + 130, winY + 182),
+        };
+
+        Item? hoveredItem = null;
+
+        foreach (var (slot, label, sx, sy) in slots)
+        {
+            Rectangle sRect = new(sx, sy, 100, 36);
+            bool isHover = Raylib.CheckCollisionPointRec(mousePos, sRect);
+            Item? eq = _inv.EquippedItems[(int)slot];
+
+            Raylib.DrawRectangleRec(sRect, new Color(24, 20, 16, 220));
+            Raylib.DrawRectangleLinesEx(sRect, 1, isHover ? Color.Yellow : new Color(80, 68, 45, 180));
+
+            FontManager.DrawText(label, sx + 4, sy + 3, 10, Color.DarkGray);
+            if (eq != null)
+            {
+                FontManager.DrawText(eq.Name, sx + 4, sy + 16, 11, Color.Gold);
+                if (isHover)
+                {
+                    hoveredItem = eq;
+                    // 双击卸下
+                    if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        if (now - _lastEquipClickTime < 0.35 && _lastEquipClickSlot == (int)slot)
+                        {
+                            string eqName = eq.Name;
+                            if (_inv.UnequipItem(slot))
+                            {
+                                SyncEquippedAppearance();
+                                _chatLogs.Add($"[卸下] 脱下了【{eqName}】并收回包裹。");
+                            }
+                            _lastEquipClickSlot = -1;
+                        }
+                        else
+                        {
+                            _lastEquipClickTime = now;
+                            _lastEquipClickSlot = (int)slot;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                FontManager.DrawText("无", sx + 4, sy + 16, 11, Color.Gray);
+            }
+        }
+
+        // 下部动态属性汇总
+        int attrY = winY + 228;
+        Raylib.DrawLine(winX + 10, attrY, winX + winW - 10, attrY, new Color(75, 62, 40, 200));
+
+        FontManager.DrawText($"物理攻击 (DC): {_inv.TotalMinDc} - {_inv.TotalMaxDc}", winX + 15, attrY + 8, 12, Color.White);
+        FontManager.DrawText($"物理防御 (AC): {_inv.TotalMinAc} - {_inv.TotalMaxAc}", winX + 15, attrY + 28, 12, Color.White);
+        FontManager.DrawText($"生命数值 (HP): {(int)_hp} / {(int)MAX_HP}", winX + 15, attrY + 48, 12, Color.Lime);
+        FontManager.DrawText($"魔法数值 (MP): {(int)_mp} / {(int)MAX_MP}", winX + 15, attrY + 68, 12, Color.SkyBlue);
+        FontManager.DrawText($"随身负重: {_inv.TotalWeight} / 280", winX + 15, attrY + 88, 12, Color.LightGray);
+
+        if (hoveredItem != null)
+        {
+            RenderItemTooltip(hoveredItem, (int)mousePos.X, (int)mousePos.Y);
+        }
+    }
+
+    private void RenderItemTooltip(Item item, int mouseX, int mouseY)
+    {
+        int tipW = 160;
+        int tipH = 96;
+        int tipX = Math.Min(Raylib.GetScreenWidth() - tipW - 10, mouseX + 12);
+        int tipY = Math.Min(Raylib.GetScreenHeight() - tipH - 10, mouseY + 12);
+
+        Raylib.DrawRectangle(tipX, tipY, tipW, tipH, new Color(10, 8, 6, 245));
+        Raylib.DrawRectangleLines(tipX, tipY, tipW, tipH, Color.Gold);
+
+        FontManager.DrawTextWithShadow(item.Name, tipX + 8, tipY + 6, 12, Color.Yellow, Color.Black);
+        FontManager.DrawText($"类型: {item.Type}", tipX + 8, tipY + 24, 11, Color.LightGray);
+
+        if (item.Type == ItemType.Weapon)
+            FontManager.DrawText($"攻击力: {item.MinDc} - {item.MaxDc}", tipX + 8, tipY + 40, 11, Color.Lime);
+        else if (item.Type == ItemType.Dress)
+            FontManager.DrawText($"防御力: {item.MinAc} - {item.MaxAc}", tipX + 8, tipY + 40, 11, Color.SkyBlue);
+        else if (item.Type == ItemType.Potion)
+            FontManager.DrawText($"恢复: HP+{item.HpRestore} MP+{item.MpRestore}", tipX + 8, tipY + 40, 11, Color.Pink);
+
+        FontManager.DrawText($"重量: {item.Weight}  持久: {item.Dura}/{item.MaxDura}", tipX + 8, tipY + 56, 10, Color.Gray);
+        FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 74, 10, Color.Gold);
     }
 }
