@@ -39,6 +39,9 @@ public class GameScene : IScene
     private int _weaponId = 1; // 1: 新手木剑, 0: 空手
     private int _dressId = 0;  // 0: 布衣
 
+    // 场景多实体管理 (NPC、怪物、其他玩家)
+    private readonly List<MapEntity> _entities = new();
+
     private static bool IsOneShotAction(HumanActionType action) => action switch
     {
         HumanActionType.Attack or HumanActionType.HeavyHit or HumanActionType.BigHit or 
@@ -112,6 +115,15 @@ public class GameScene : IScene
                 _mapLoaded = false;
             }
         }
+
+        // 初始化场景实体 (比奇老兵 NPC 与野外怪物)
+        _entities.Clear();
+        _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
+        _entities.Add(new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(332, 268), appr: 0, maxHp: 80));
+        _entities.Add(new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(328, 267), appr: 1, maxHp: 100));
+        _entities.Add(new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 266), appr: 2, maxHp: 150));
+        _entities.Add(new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(329, 270), appr: 3, maxHp: 120));
+        _chatLogs.Add("[世界] 比奇省老兵已就位，城外刷新野怪【稻草人】、【钉耙猫】、【半兽人】！");
     }
 
     public void Update(float dt)
@@ -239,6 +251,12 @@ public class GameScene : IScene
             {
                 _motionStep = (_motionStep + 1) % actionInfo.Frame;
             }
+        }
+
+        // 推进所有场景实体逻辑与动画
+        foreach (var entity in _entities)
+        {
+            entity.UpdateAnimation(dt);
         }
 
         // 摄像机平滑跟随
@@ -460,8 +478,30 @@ public class GameScene : IScene
             }
         }
 
-        // 绘制玩家光圈与名称
-        DrawPlayer(screenCenter);
+        // 2.5D 视口实体深度排序 (Y-Sorting): 脚底 Y 越小越先画，近景遮挡远景
+        var renderItems = new List<(float Y, Action Draw)>();
+
+        // 收集所有可见场景实体 (NPC、怪物)
+        foreach (var entity in _entities)
+        {
+            Vector2 rel = entity.TilePos - _playerTilePos;
+            Vector2 entityPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            // 视口粗裁剪 (超出屏幕边缘则跳过)
+            if (entityPixel.X < -120 || entityPixel.X > viewportW + 120 || entityPixel.Y < -120 || entityPixel.Y > viewportH + 120)
+                continue;
+
+            renderItems.Add((entity.TilePos.Y, () => DrawEntity(entity, entityPixel)));
+        }
+
+        // 添加玩家自身
+        renderItems.Add((_playerTilePos.Y, () => DrawPlayer(screenCenter)));
+
+        // 严格按照脚底 Y 升序排列并依次绘制
+        renderItems.Sort((a, b) => a.Y.CompareTo(b.Y));
+        foreach (var item in renderItems)
+        {
+            item.Draw();
+        }
     }
 
     private void TriggerAttack()
@@ -479,6 +519,29 @@ public class GameScene : IScene
         _currentAction = HumanActionType.Attack;
         _motionStep = 0;
         _actionTimer = 0f;
+
+        // 计算前方攻击落点瓦片 (正前方 1 格)
+        Vector2 frontTile = MapEntity.GetFrontTile(_playerTilePos, _direction);
+
+        // 查找命中目标实体
+        MapEntity? target = _entities.FirstOrDefault(e => !e.IsDead && Vector2.Distance(e.TilePos, frontTile) < 0.9f);
+        if (target != null)
+        {
+            if (target.Type == EntityType.Monster)
+            {
+                int damage = Random.Shared.Next(18, 32); // 挥砍基础物理伤害
+                target.TakeDamage(damage);
+                _chatLogs.Add($"[战斗] 挥砍命中【{target.Name}】造成 {damage} 点伤害！目标生命: {target.Hp}/{target.MaxHp}");
+                if (target.IsDead)
+                {
+                    _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +100");
+                }
+            }
+            else if (target.Type == EntityType.Npc)
+            {
+                _chatLogs.Add($"[NPC] 【{target.Name}】对您说：“年轻人，比奇城外多有妖邪出没，切莫轻敌！”");
+            }
+        }
     }
 
     private void TriggerSpell()
@@ -567,6 +630,90 @@ public class GameScene : IScene
         string lookInfo = $"[{(_gender == 0 ? "男" : "女")} | {weaponDesc} | {hairDesc}]";
         int infoW = FontManager.MeasureText(lookInfo, 10);
         FontManager.DrawTextWithShadow(lookInfo, (int)(center.X - infoW / 2f), headY - 28, 10, Color.LightGray, Color.Black);
+    }
+
+    private void DrawEntity(MapEntity entity, Vector2 center)
+    {
+        if (entity.Type == EntityType.Npc)
+        {
+            // NPC 贴图绘制 (NpcLib: Data/Npc)
+            int npcFrame = entity.Appr * 60 + (entity.MotionStep % 4);
+            var (npcTex, px, py) = AssetManager.GetFrameWithOffset(AssetManager.NpcLib, "Npc", npcFrame);
+            if (npcTex.HasValue)
+            {
+                Raylib.DrawTexture(npcTex.Value, (int)(center.X + px), (int)(center.Y + py), Color.White);
+            }
+            else
+            {
+                // 容错表现：以 Hum 基础帧呈现老者装束
+                var (humTex, hx, hy) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", 0);
+                if (humTex.HasValue)
+                {
+                    Raylib.DrawTexture(humTex.Value, (int)(center.X + hx), (int)(center.Y + hy), new Color(170, 210, 255, 255));
+                }
+            }
+
+            // NPC 头顶金色尊称
+            int nameW = FontManager.MeasureText(entity.Name, 12);
+            FontManager.DrawTextWithShadow(entity.Name, (int)(center.X - nameW / 2f), (int)center.Y - 60, 12, Color.Gold, Color.Black);
+        }
+        else if (entity.Type == EntityType.Monster)
+        {
+            // 怪物模型绘制 (Mon1Lib: Data/Mon1)
+            // 盛大原版 Mon1 中每只怪物通常 8 方向展开，每个动作 6~8 帧
+            int baseMotionFrame = entity.CurrentAction switch
+            {
+                HumanActionType.Stand => entity.Direction * 10 + (entity.MotionStep % 4),
+                HumanActionType.Walk  => 80 + entity.Direction * 10 + (entity.MotionStep % 6),
+                HumanActionType.Attack => 160 + entity.Direction * 10 + (entity.MotionStep % 6),
+                HumanActionType.Struck => 240 + entity.Direction * 10 + (entity.MotionStep % 2),
+                HumanActionType.Die   => 260 + entity.Direction * 10 + (entity.MotionStep % 4),
+                _ => entity.Direction * 10
+            };
+            int monFrame = entity.Appr * 360 + baseMotionFrame;
+
+            var (monTex, mx, my) = AssetManager.GetFrameWithOffset(AssetManager.Mon1Lib, "Mon1", monFrame);
+            if (monTex.HasValue)
+            {
+                Color tint = entity.IsDead ? new Color(110, 110, 110, 170) : Color.White;
+                Raylib.DrawTexture(monTex.Value, (int)(center.X + mx), (int)(center.Y + my), tint);
+            }
+            else
+            {
+                // 容错表现：若怪物图库未解压或当前帧超出，使用原版 Hum 染红作为假想怪演示
+                int humBase = HumanAction.CalculateBaseFrame(entity.CurrentAction, entity.Direction, entity.MotionStep);
+                var (humTex, hx, hy) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", humBase);
+                if (humTex.HasValue)
+                {
+                    Color monTint = entity.IsDead ? new Color(80, 50, 50, 160) : new Color(255, 120, 120, 255);
+                    Raylib.DrawTexture(humTex.Value, (int)(center.X + hx), (int)(center.Y + hy), monTint);
+                }
+            }
+
+            // 活着的怪物显示血条与名称
+            if (!entity.IsDead)
+            {
+                int barW = 36;
+                int barH = 3;
+                int barX = (int)(center.X - barW / 2f);
+                int barY = (int)(center.Y - 50);
+                Raylib.DrawRectangle(barX, barY, barW, barH, Color.Black);
+                float hpRate = Math.Clamp((float)entity.Hp / entity.MaxHp, 0f, 1f);
+                Raylib.DrawRectangle(barX, barY, (int)(barW * hpRate), barH, Color.Red);
+
+                int mNameW = FontManager.MeasureText(entity.Name, 11);
+                FontManager.DrawTextWithShadow(entity.Name, (int)(center.X - mNameW / 2f), barY - 14, 11, new Color(255, 180, 180, 255), Color.Black);
+            }
+
+            // 浮动伤害跳字提示
+            if (entity.DamageText != null)
+            {
+                float floatOffset = (1.0f - entity.DamageTextTimer) * 20f;
+                int floatY = (int)(center.Y - 60 - floatOffset);
+                int dmgW = FontManager.MeasureText(entity.DamageText, 14);
+                FontManager.DrawTextWithShadow(entity.DamageText, (int)(center.X - dmgW / 2f), floatY, 14, Color.Yellow, Color.Red);
+            }
+        }
     }
 
     private void RenderBottomHud(int screenW, int screenH)

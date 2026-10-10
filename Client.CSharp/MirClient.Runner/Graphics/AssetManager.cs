@@ -27,6 +27,8 @@ public static class AssetManager
     public static WilLoader HumLib { get; } = new();    // 角色身体与服装原版图库 (Data/Hum)
     public static WilLoader HairLib { get; } = new();   // 角色发型原版图库 (Data/Hair)
     public static WilLoader WeaponLib { get; } = new(); // 角色武器原版图库 (Data/Weapon)
+    public static WilLoader NpcLib { get; } = new();    // NPC原版图库 (Data/Npc)
+    public static WilLoader Mon1Lib { get; } = new();   // 经典怪物原版图库 (Data/Mon1 或 Data/Mon)
 
     // GPU 纹理显存缓存池 (键为图库标识+帧序号)
     private static readonly ConcurrentDictionary<string, Texture2D> _textureCache = new();
@@ -83,6 +85,11 @@ public static class AssetManager
         ObjectsLib.TryLoadAuto(Path.Combine(dataDir, "Objects"));
         HairLib.TryLoadAuto(Path.Combine(dataDir, "Hair"));
         WeaponLib.TryLoadAuto(Path.Combine(dataDir, "Weapon"));
+        NpcLib.TryLoadAuto(Path.Combine(dataDir, "Npc"));
+        if (!Mon1Lib.TryLoadAuto(Path.Combine(dataDir, "Mon1")))
+        {
+            Mon1Lib.TryLoadAuto(Path.Combine(dataDir, "Mon"));
+        }
 
         string map0 = Path.Combine(mapDir, "0.map");
         if (!File.Exists(map0)) missingFiles.Add("Map/0.map (比奇城地图)");
@@ -97,6 +104,7 @@ public static class AssetManager
         Console.WriteLine($"[资产装配成功] 已 100% 挂载盛大十周年原生资产库: {resolvedDir}");
         Console.WriteLine($"  ChrSel: {ChrSelLib.ImageCount}, Prguse: {PrguseLib.ImageCount}, Prguse3: {Prguse3Lib.ImageCount}");
         Console.WriteLine($"  Hum: {HumLib.ImageCount}, Hair: {HairLib.ImageCount}, Weapon: {WeaponLib.ImageCount}");
+        Console.WriteLine($"  Npc: {NpcLib.ImageCount}, Mon1: {Mon1Lib.ImageCount}");
         IsReady = true;
         return true;
     }
