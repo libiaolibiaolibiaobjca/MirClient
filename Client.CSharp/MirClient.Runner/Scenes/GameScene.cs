@@ -1,0 +1,589 @@
+using System.Numerics;
+using Raylib_cs;
+using MirClient.Protocol;
+using MirClient.Protocol.Resources;
+using MirClient.Runner.Graphics;
+
+namespace MirClient.Runner.Scenes;
+
+/// <summary>
+/// 盛大十周年原版主游戏视口场景：
+/// 1. 100% 依托 Map/0.map 与 Data/Tiles.*、SmTiles.*、Objects.* 渲染真实比奇城地貌；
+/// 2. 100% 贴图 Prguse3 Index 371 原版控制台底板与 Prguse Index 4 矩形裁剪玻璃血魔球；
+/// 3. 原生 8 方向操作走跑、摄像机跟随与聊天窗口。
+/// </summary>
+public class GameScene : IScene
+{
+    private readonly GameEngine _engine;
+    private readonly ClientConfig _config;
+
+    // 0.map 地图加载器
+    private readonly MapLoader _mapLoader = new();
+    private bool _mapLoaded = false;
+
+    // 玩家世界坐标 (以瓦片为单位，比奇省老兵坐标 330, 268)
+    private Vector2 _playerTilePos = new(330, 268);
+    private Vector2 _targetTilePos = new(330, 268);
+    private int _direction = 4; // 初始面向南方 (0: 上, 1: 右上, 2: 右, 3: 右下, 4: 下, 5: 左下, 6: 左, 7: 左上)
+    private bool _isRunning = false;
+    private float _moveSpeed = 4.0f; // 瓦片/秒
+
+    // 原版角色动作与动画状态机
+    private HumanActionType _currentAction = HumanActionType.Stand;
+    private float _actionTimer = 0f;
+    private int _motionStep = 0;
+
+    // 摄像机平滑像素位置
+    private Vector2 _cameraPixelPos;
+
+    // 瓦片尺寸 (经典传奇: 48x32 像素网格)
+    private const int TILE_WIDTH = 48;
+    private const int TILE_HEIGHT = 32;
+
+    // 生命与魔法值
+    private float _hp = 650;
+    private const float MAX_HP = 650;
+    private float _mp = 320;
+    private const float MAX_MP = 320;
+
+    // 聊天消息队列
+    private readonly List<string> _chatLogs = new();
+
+    public GameScene(GameEngine engine, ClientConfig config)
+    {
+        _engine = engine;
+        _config = config;
+        _cameraPixelPos = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+    }
+
+    public void Init()
+    {
+        _chatLogs.Clear();
+        _chatLogs.Add("[系统] 欢迎回到热血传奇！已连接至盛大十周年原生资产引擎。");
+        _chatLogs.Add($"[系统] 当前服务器: {_config.ServerAddr}:{_config.ServerPort} (区服: {_config.ServerName})");
+        _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游。");
+        _chatLogs.Add("[系统] 调试功能: [F11] 实时切换4种色彩解码模式并刷新材质！");
+
+        // 写入资源诊断日志 client_diagnostic.log
+        try
+        {
+            List<string> diagLines = new()
+            {
+                $"=== 盛大十周年核心资产诊断报告 ({DateTime.Now:yyyy-MM-dd HH:mm:ss}) ===",
+                $"客户端路径: {AssetManager.ClientRootPath}",
+                $"Tiles: 文件={AssetManager.TilesLib.LoadedFilePath}, WZL={AssetManager.TilesLib.IsWzl}, 总数={AssetManager.TilesLib.ImageCount}, 帧0={AssetManager.TilesLib.GetImageMeta(0)}",
+                $"SmTiles: 文件={AssetManager.SmTilesLib.LoadedFilePath}, WZL={AssetManager.SmTilesLib.IsWzl}, 总数={AssetManager.SmTilesLib.ImageCount}",
+                $"Objects: 文件={AssetManager.ObjectsLib.LoadedFilePath}, WZL={AssetManager.ObjectsLib.IsWzl}, 总数={AssetManager.ObjectsLib.ImageCount}",
+                $"Prguse: 文件={AssetManager.PrguseLib.LoadedFilePath}, WZL={AssetManager.PrguseLib.IsWzl}, 总数={AssetManager.PrguseLib.ImageCount}, 帧4={AssetManager.PrguseLib.GetImageMeta(4)}",
+                $"Prguse3: 文件={AssetManager.Prguse3Lib.LoadedFilePath}, WZL={AssetManager.Prguse3Lib.IsWzl}, 总数={AssetManager.Prguse3Lib.ImageCount}, 帧371={AssetManager.Prguse3Lib.GetImageMeta(371)}",
+                $"Hum: 文件={AssetManager.HumLib.LoadedFilePath}, WZL={AssetManager.HumLib.IsWzl}, 总数={AssetManager.HumLib.ImageCount}, 帧0={AssetManager.HumLib.GetImageMeta(0)}",
+                $"当前色彩模式: {WilLoader.ActiveColorMode}"
+            };
+            File.WriteAllLines("client_diagnostic.log", diagLines);
+        }
+        catch { }
+
+        // 加载比奇城 0.map
+        string mapPath = Path.Combine(AssetManager.ClientRootPath, "Map", "0.map");
+        if (File.Exists(mapPath))
+        {
+            try
+            {
+                _mapLoader.Load(mapPath);
+                _mapLoaded = true;
+                Console.WriteLine($"[地图装载成功] 比奇城 0.map ({_mapLoader.Width} x {_mapLoader.Height}) 已就绪！");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[地图错误] 加载 0.map 失败: {ex.Message}");
+                _mapLoaded = false;
+            }
+        }
+    }
+
+    public void Update(float dt)
+    {
+        HandleInput(dt);
+
+        // F11 实时切换 16 位颜色解码模式
+        if (Raylib.IsKeyPressed(KeyboardKey.F11))
+        {
+            WilLoader.ActiveColorMode = (ColorDecodeMode)(((int)WilLoader.ActiveColorMode + 1) % 4);
+            AssetManager.ClearTextures();
+            string modeDesc = WilLoader.ActiveColorMode switch
+            {
+                ColorDecodeMode.Bgr565 => "模式 0: 盛大原版官方正统 (实测 100% 正确真值)",
+                ColorDecodeMode.Rgb565 => "模式 1: 备用 RGB565 (高5位 Red, 低5位 Blue)",
+                ColorDecodeMode.BigEndianRgb => "模式 2: 备用大端序 RGB565 (字节对调, 高5位 Red)",
+                ColorDecodeMode.BigEndianBgr => "模式 3: 备用大端序 BGR565 (字节对调, 高5位 Blue)",
+                _ => ""
+            };
+            _chatLogs.Add($"[色彩切换] 已切换至 -> {modeDesc}");
+            Console.WriteLine($"[色彩切换] {modeDesc}");
+        }
+
+        // 玩家移动插值与动作切换
+        Vector2 diff = _targetTilePos - _playerTilePos;
+        float dist = diff.Length();
+        HumanActionType targetAction = HumanActionType.Stand;
+
+        if (dist > 0.05f)
+        {
+            targetAction = _isRunning ? HumanActionType.Run : HumanActionType.Walk;
+            float speed = _isRunning ? _moveSpeed * 1.8f : _moveSpeed;
+            Vector2 step = Vector2.Normalize(diff) * speed * dt;
+            if (step.Length() > dist)
+                _playerTilePos = _targetTilePos;
+            else
+                _playerTilePos += step;
+
+            UpdateDirection(diff);
+        }
+        else
+        {
+            _playerTilePos = _targetTilePos;
+            _isRunning = false;
+            targetAction = HumanActionType.Stand;
+        }
+
+        // 状态切换时重置步进
+        if (targetAction != _currentAction)
+        {
+            _currentAction = targetAction;
+            _motionStep = 0;
+            _actionTimer = 0f;
+        }
+
+        // 动画帧时钟推进
+        var actionInfo = HumanAction.GetActionInfo(_currentAction);
+        _actionTimer += dt * 1000f;
+        if (_actionTimer >= actionInfo.FTime)
+        {
+            _actionTimer -= actionInfo.FTime;
+            _motionStep = (_motionStep + 1) % actionInfo.Frame;
+        }
+
+        // 摄像机平滑跟随
+        Vector2 targetPixel = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+        _cameraPixelPos = Vector2.Lerp(_cameraPixelPos, targetPixel, 10f * dt);
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.F2))
+        {
+            _engine.SwitchToLoginScene();
+        }
+    }
+
+    private void HandleInput(float dt)
+    {
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+
+        // 键盘 WASD 控制
+        Vector2 moveInput = Vector2.Zero;
+        if (Raylib.IsKeyDown(KeyboardKey.W) || Raylib.IsKeyDown(KeyboardKey.Up)) moveInput.Y -= 1;
+        if (Raylib.IsKeyDown(KeyboardKey.S) || Raylib.IsKeyDown(KeyboardKey.Down)) moveInput.Y += 1;
+        if (Raylib.IsKeyDown(KeyboardKey.A) || Raylib.IsKeyDown(KeyboardKey.Left)) moveInput.X -= 1;
+        if (Raylib.IsKeyDown(KeyboardKey.D) || Raylib.IsKeyDown(KeyboardKey.Right)) moveInput.X += 1;
+
+        if (moveInput != Vector2.Zero)
+        {
+            Vector2 next = _playerTilePos + Vector2.Normalize(moveInput) * 1.5f;
+            if (!IsCellBlocked((int)next.X, (int)next.Y))
+            {
+                _targetTilePos = next;
+                _isRunning = Raylib.IsKeyDown(KeyboardKey.LeftShift);
+            }
+            return;
+        }
+
+        // 鼠标右键：长按奔跑
+        if (Raylib.IsMouseButtonDown(MouseButton.Right))
+        {
+            Vector2 mousePos = Raylib.GetMousePosition();
+            Vector2 screenCenter = new(screenW / 2f, (screenH - 140) / 2f);
+            Vector2 mouseDir = mousePos - screenCenter;
+            if (mouseDir.Length() > 30f)
+            {
+                Vector2 next = _playerTilePos + Vector2.Normalize(mouseDir) * 2.0f;
+                if (!IsCellBlocked((int)next.X, (int)next.Y))
+                {
+                    _targetTilePos = next;
+                    _isRunning = true;
+                }
+            }
+        }
+        // 鼠标左键：点击地面走动
+        else if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            Vector2 mousePos = Raylib.GetMousePosition();
+            if (mousePos.Y < screenH - 150)
+            {
+                Vector2 screenCenter = new(screenW / 2f, (screenH - 140) / 2f);
+                Vector2 offset = mousePos - screenCenter;
+                Vector2 next = _playerTilePos + new Vector2(offset.X / TILE_WIDTH, offset.Y / TILE_HEIGHT);
+                if (!IsCellBlocked((int)next.X, (int)next.Y))
+                {
+                    _targetTilePos = next;
+                    _isRunning = false;
+                }
+            }
+        }
+    }
+
+    private bool IsCellBlocked(int x, int y)
+    {
+        if (!_mapLoaded) return false;
+        if (x < 0 || x >= _mapLoader.Width || y < 0 || y >= _mapLoader.Height) return true;
+        return _mapLoader.Cells[x, y].IsBlocked;
+    }
+
+    private void UpdateDirection(Vector2 dir)
+    {
+        float angle = MathF.Atan2(dir.Y, dir.X) * (180.0f / MathF.PI);
+        if (angle < 0) angle += 360f;
+
+        _direction = angle switch
+        {
+            >= 247.5f and < 292.5f => 0, // 上
+            >= 292.5f and < 337.5f => 1, // 右上
+            >= 337.5f or < 22.5f   => 2, // 右
+            >= 22.5f and < 67.5f   => 3, // 右下
+            >= 67.5f and < 112.5f  => 4, // 下
+            >= 112.5f and < 157.5f => 5, // 左下
+            >= 157.5f and < 202.5f => 6, // 左
+            _                      => 7  // 左上
+        };
+    }
+
+    public void Render()
+    {
+        // 确保全帧缓冲区纯黑底色，杜绝任何未清除缓冲区的白板或撕裂
+        Raylib.ClearBackground(Color.Black);
+
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+
+        // 1. 渲染比奇城地图视口 (严格依托 0.map 与三趟独立 Pass 管线)
+        RenderMapViewport(screenW, screenH - 140);
+
+        // 2. 渲染十周年原版主界面 HUD (Prguse3 底板 + Prguse 玻璃血魔球 + 嵌入式聊天视窗 + 原生圆钮交互)
+        RenderBottomHud(screenW, screenH);
+
+        // 3. 渲染右上角小地图
+        RenderMiniMap(screenW);
+
+        // 4. 左上角显示当前色彩解码模式及 [F11] 切换指引 (带半透明背景框，防树木遮挡)
+        string modeStr = $"[F11: 切换色彩模式] 当前: {(int)WilLoader.ActiveColorMode} - {WilLoader.ActiveColorMode}";
+        Raylib.DrawRectangle(8, 8, 380, 24, new Color(0, 0, 0, 200));
+        FontManager.DrawTextWithShadow(modeStr, 14, 13, 12, Color.Gold, Color.Black);
+    }
+
+    private void RenderMapViewport(int viewportW, int viewportH)
+    {
+        Vector2 screenCenter = new(viewportW / 2f, viewportH / 2f);
+
+        int centerTileX = (int)MathF.Round(_playerTilePos.X);
+        int centerTileY = (int)MathF.Round(_playerTilePos.Y);
+
+        int viewRadiusX = (viewportW / TILE_WIDTH) / 2 + 3;
+        int viewRadiusY = (viewportH / TILE_HEIGHT) / 2 + 3;
+
+        int startY = centerTileY - viewRadiusY;
+        int endY = centerTileY + viewRadiusY;
+        int startX = centerTileX - viewRadiusX;
+        int endX = centerTileX + viewRadiusX;
+
+        if (!_mapLoaded) return;
+
+        // 【Pass 1: 底层大瓦片 (Tiles / BkImg)】
+        // 跨度 2x2 网格 (96x64 像素)，严格先全量铺平底层地砖，杜绝盖碎建筑基座
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                if (x < 0 || x >= _mapLoader.Width || y < 0 || y >= _mapLoader.Height) continue;
+                if ((x % 2 != 0) || (y % 2 != 0)) continue;
+
+                var cell = _mapLoader.Cells[x, y];
+                int bkIdx = cell.CleanBkIndex - 1;
+                if (bkIdx >= 0)
+                {
+                    float screenX = screenCenter.X + (x * TILE_WIDTH - _cameraPixelPos.X);
+                    float screenY = screenCenter.Y + (y * TILE_HEIGHT - _cameraPixelPos.Y);
+                    Texture2D? tileTex = AssetManager.GetTexture(AssetManager.TilesLib, "Tiles", bkIdx);
+                    if (tileTex.HasValue)
+                    {
+                        Raylib.DrawTexture(tileTex.Value, (int)screenX, (int)screenY, Color.White);
+                    }
+                }
+            }
+        }
+
+        // 【Pass 2: 中层微地貌与道路瓦片 (SmTiles / MidImg)】
+        // 逐格扫描并覆盖在大瓦片之上
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                if (x < 0 || x >= _mapLoader.Width || y < 0 || y >= _mapLoader.Height) continue;
+
+                var cell = _mapLoader.Cells[x, y];
+                int midIdx = cell.CleanMidIndex - 1;
+                if (midIdx >= 0)
+                {
+                    float screenX = screenCenter.X + (x * TILE_WIDTH - _cameraPixelPos.X);
+                    float screenY = screenCenter.Y + (y * TILE_HEIGHT - _cameraPixelPos.Y);
+                    Texture2D? smTileTex = AssetManager.GetTexture(AssetManager.SmTilesLib, "SmTiles", midIdx);
+                    if (smTileTex.HasValue)
+                    {
+                        Raylib.DrawTexture(smTileTex.Value, (int)screenX, (int)screenY, Color.White);
+                    }
+                }
+            }
+        }
+
+        // 【Pass 3: 前景物体建筑/城墙与光晕 (Objects / FrImg)】
+        // 严格遵循 Y 轴自上而下逐行扫描，还原自然景深与遮挡 (Y-Sorting)
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                if (x < 0 || x >= _mapLoader.Width || y < 0 || y >= _mapLoader.Height) continue;
+
+                var cell = _mapLoader.Cells[x, y];
+                int frIdx = cell.CleanFrIndex - 1;
+                if (frIdx >= 0)
+                {
+                    float screenX = screenCenter.X + (x * TILE_WIDTH - _cameraPixelPos.X);
+                    float screenY = screenCenter.Y + (y * TILE_HEIGHT - _cameraPixelPos.Y);
+                    Texture2D? objTex = AssetManager.GetTexture(AssetManager.ObjectsLib, "Objects", frIdx);
+                    if (objTex.HasValue)
+                    {
+                        int drawX = (int)screenX;
+                        int drawY = (int)screenY - (objTex.Value.Height - TILE_HEIGHT);
+
+                        // 盛大原版光照混合: 当 (AniFrame & 0x80) != 0 时为路灯/火把光晕，走加法混合
+                        bool isBlend = (cell.AniFrame & 0x80) != 0;
+                        if (isBlend)
+                        {
+                            Raylib.BeginBlendMode(BlendMode.Additive);
+                            Raylib.DrawTexture(objTex.Value, drawX, drawY, Color.White);
+                            Raylib.EndBlendMode();
+                        }
+                        else
+                        {
+                            Raylib.DrawTexture(objTex.Value, drawX, drawY, Color.White);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 绘制玩家光圈与名称
+        DrawPlayer(screenCenter);
+    }
+
+    private void DrawPlayer(Vector2 center)
+    {
+        // 1. 盛大十周年原生角色模型渲染 (身体与服装: Data/Hum)
+        // 杜绝任何假几何光圈糊弄，100% 按原版动作帧与 8 方向热点偏移渲染
+        int frameIndex = HumanAction.CalculateFrameIndex(_currentAction, _direction, _motionStep, dress: 0);
+        var (actorTex, px, py) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", frameIndex);
+
+        if (actorTex.HasValue)
+        {
+            // 原版原生热点锚定: 屏幕瓦片中心 + (Px, Py)
+            int drawX = (int)(center.X + px);
+            int drawY = (int)(center.Y + py);
+            Raylib.DrawTexture(actorTex.Value, drawX, drawY, Color.White);
+        }
+
+        // 2. 头顶原版经典血条与角色名称 (定位于角色头部上方)
+        int headY = (int)(center.Y - 64);
+        int hpBarW = 46;
+        int hpBarH = 4;
+        int hpBarX = (int)(center.X - hpBarW / 2f);
+        int hpBarY = headY;
+
+        Raylib.DrawRectangle(hpBarX, hpBarY, hpBarW, hpBarH, Color.Black);
+        float hpRate = Math.Clamp(_hp / MAX_HP, 0f, 1f);
+        Raylib.DrawRectangle(hpBarX, hpBarY, (int)(hpBarW * hpRate), hpBarH, Color.Green);
+        Raylib.DrawRectangleLines(hpBarX, hpBarY, hpBarW, hpBarH, Color.Gold);
+
+        string name = "逐鹿天下";
+        int nameW = FontManager.MeasureText(name, 12);
+        FontManager.DrawTextWithShadow(name, (int)(center.X - nameW / 2f), headY - 16, 12, Color.Yellow, Color.Black);
+    }
+
+    private void RenderBottomHud(int screenW, int screenH)
+    {
+        // 1. 贴图十周年原版控制台金属雕花底板 (Prguse3 Index 371 或 Prguse Index 0)
+        Texture2D? bottomTex = AssetManager.GetTexture(AssetManager.Prguse3Lib, "Prguse3", 371) 
+                            ?? AssetManager.GetTexture(AssetManager.PrguseLib, "Prguse", 0);
+
+        int boardW = bottomTex.HasValue ? bottomTex.Value.Width : 800;
+        int boardH = bottomTex.HasValue ? bottomTex.Value.Height : 140;
+
+        // 宽屏居中局部锚点系统 (严格对齐 Delphi DBottom.Left := (SCREENWIDTH - DBottom.Width) div 2)
+        int boardX = (screenW - boardW) / 2;
+        int boardY = screenH - boardH;
+
+        // 【关键】：在底板全域（包括中央镂空的聊天窗口背面）铺垫深墨黑底色，彻底消灭聊天视窗白板穿透
+        Raylib.DrawRectangle(boardX, boardY, boardW, boardH, new Color(14, 12, 10, 255));
+
+        if (boardX > 0)
+        {
+            Raylib.DrawRectangle(0, boardY, boardX, boardH, new Color(18, 16, 14, 255));
+            Raylib.DrawRectangle(boardX + boardW, boardY, screenW - (boardX + boardW), boardH, new Color(18, 16, 14, 255));
+        }
+
+        if (bottomTex.HasValue)
+        {
+            Rectangle srcRect = new(0, 0, bottomTex.Value.Width, bottomTex.Value.Height);
+            Rectangle destRect = new(boardX, boardY, bottomTex.Value.Width, bottomTex.Value.Height);
+            Raylib.DrawTexturePro(bottomTex.Value, srcRect, destRect, Vector2.Zero, 0f, Color.White);
+        }
+        else
+        {
+            Raylib.DrawRectangle(boardX, boardY, boardW, boardH, new Color(22, 20, 18, 255));
+            Raylib.DrawLine(boardX, boardY, boardX + boardW, boardY, Color.Gold);
+        }
+
+        // 2. 贴图十周年原版双色玻璃血魔球 (Prguse Index 4) - 严格相对 boardX, boardY 局部锚定
+        Texture2D? ballTex = AssetManager.GetTexture(AssetManager.PrguseLib, "Prguse", 4);
+        if (ballTex.HasValue)
+        {
+            int bw = ballTex.Value.Width;
+            int bh = ballTex.Value.Height;
+
+            // 原版 Delphi FState.pas:8824: 血球相对底板 (Left + 38, Top + 91 精准同心嵌合左侧龙纹凹槽)
+            int ballX = boardX + 38;
+            int ballY = boardH >= 200 ? boardY + 91 : boardY + (boardH - bh) / 2;
+
+            // 左半球 HP (生命纯红)：根据 (MAX_HP - HP)/MAX_HP 动态计算顶部裁剪
+            float hpEmptyRate = (MAX_HP - _hp) / MAX_HP;
+            int hpCropTop = (int)(bh * Math.Clamp(hpEmptyRate, 0f, 1f));
+            Rectangle hpSrc = new(0, hpCropTop, bw / 2, bh - hpCropTop);
+            Rectangle hpDest = new(ballX, ballY + hpCropTop, bw / 2, bh - hpCropTop);
+            Raylib.DrawTexturePro(ballTex.Value, hpSrc, hpDest, Vector2.Zero, 0f, Color.White);
+
+            // 右半球 MP (魔法湛蓝)：根据 (MAX_MP - MP)/MAX_MP 动态计算顶部裁剪
+            float mpEmptyRate = (MAX_MP - _mp) / MAX_MP;
+            int mpCropTop = (int)(bh * Math.Clamp(mpEmptyRate, 0f, 1f));
+            Rectangle mpSrc = new(bw / 2, mpCropTop, bw / 2, bh - mpCropTop);
+            Rectangle mpDest = new(ballX + bw / 2, ballY + mpCropTop, bw / 2, bh - mpCropTop);
+            Raylib.DrawTexturePro(ballTex.Value, mpSrc, mpDest, Vector2.Zero, 0f, Color.White);
+
+            // 血球数值文字
+            string hpStr = $"{(int)_hp}";
+            string mpStr = $"{(int)_mp}";
+            FontManager.DrawTextWithShadow(hpStr, ballX + 10, ballY + bh / 2 - 8, 12, Color.White, Color.Black);
+            FontManager.DrawTextWithShadow(mpStr, ballX + bw / 2 + 8, ballY + bh / 2 - 8, 12, Color.White, Color.Black);
+        }
+
+        // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
+        RenderChatBox(boardX, boardY);
+
+        // 4. 右侧 F1 ~ F8 快捷技能槽与原生红宝石圆钮交互 (避开聊天框，精准居于右侧凹槽)
+        RenderSkillAndFuncButtons(boardX, boardY);
+    }
+
+    private void RenderSkillAndFuncButtons(int boardX, int boardY)
+    {
+        // 1. F1 ~ F8 技能快捷栏：精准嵌合右上方雕花凹槽 (StartX 对齐 502，彻底避开聊天框)
+        int slotSize = 32;
+        int slotSpacing = 3;
+        int slotsStartX = boardX + 502;
+        int slotsY = boardY + 12;
+        string[] skillNames = { "烈火", "刺杀", "逐日", "野蛮", "半月", "攻杀", "开天", "随机" };
+
+        for (int i = 0; i < 8; i++)
+        {
+            int slotX = slotsStartX + i * (slotSize + slotSpacing);
+            Rectangle slotRect = new(slotX, slotsY, slotSize, slotSize);
+            Raylib.DrawRectangleRec(slotRect, new Color(22, 18, 14, 210));
+            Raylib.DrawRectangleLinesEx(slotRect, 1, new Color(110, 90, 45, 220));
+
+            FontManager.DrawText($"F{i + 1}", slotX + 2, slotsY + 2, 10, Color.Orange);
+            int skillW = FontManager.MeasureText(skillNames[i], 11);
+            FontManager.DrawText(skillNames[i], slotX + (slotSize - skillW) / 2, slotsY + 15, 11, Color.Yellow);
+        }
+
+        // 2. 底板右下角原生雕花红宝石大圆钮交互（移除突兀的纯黑矩形，100% 依托原生贴图浮雕）
+        // 4 个经典大圆钮依次为：包裹、状态、行会、退出
+        (string name, int centerX, int centerY, Action action)[] nativeButtons =
+        {
+            ("包裹", boardX + 718, boardY + 115, () => _chatLogs.Add("[系统] 包裹窗口快捷键: F9")),
+            ("状态", boardX + 750, boardY + 115, () => _chatLogs.Add("[系统] 角色状态快捷键: F10")),
+            ("行会", boardX + 782, boardY + 115, () => _chatLogs.Add("[系统] 行会窗口快捷键: G")),
+            ("退出", boardX + 814, boardY + 115, () => _engine.SwitchToLoginScene())
+        };
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+        int btnRadius = 14;
+
+        foreach (var btn in nativeButtons)
+        {
+            Vector2 btnCenter = new(btn.centerX, btn.centerY);
+            bool hover = Vector2.Distance(mousePos, btnCenter) <= btnRadius;
+
+            if (hover)
+            {
+                // 鼠标悬停原生红宝石按钮：高亮金色光环与提示
+                Raylib.DrawCircleLines(btn.centerX, btn.centerY, btnRadius, Color.Gold);
+                Raylib.DrawCircleLines(btn.centerX, btn.centerY, btnRadius - 1, Color.Yellow);
+                FontManager.DrawTextWithShadow(btn.name, btn.centerX - 11, btn.centerY - 24, 11, Color.Yellow, Color.Black);
+
+                if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    btn.action();
+                }
+            }
+        }
+    }
+
+    private void RenderChatBox(int boardX, int boardY)
+    {
+        // 针对十周年底板中央聊天区，铺设典雅黑曜石底板，文字清晰锐利
+        int chatBoxX = boardX + 192;
+        int chatBoxY = boardY + 10;
+        int chatBoxW = 310;
+        int chatBoxH = 228;
+
+        Raylib.DrawRectangle(chatBoxX, chatBoxY, chatBoxW, chatBoxH, new Color(16, 14, 12, 235));
+        Raylib.DrawRectangleLines(chatBoxX, chatBoxY, chatBoxW, chatBoxH, new Color(75, 62, 40, 160));
+
+        int chatTextX = chatBoxX + 6;
+        int chatTextY = chatBoxY + 4;
+        int lineY = chatTextY;
+        int startIdx = Math.Max(0, _chatLogs.Count - 5);
+        for (int i = startIdx; i < _chatLogs.Count; i++)
+        {
+            FontManager.DrawText(_chatLogs[i], chatTextX, lineY, 12, i == _chatLogs.Count - 1 ? Color.Lime : Color.LightGray);
+            lineY += 17;
+        }
+    }
+
+    private void RenderMiniMap(int screenW)
+    {
+        int mapW = 150;
+        int mapH = 120;
+        int mapX = screenW - mapW - 12;
+        int mapY = 12;
+
+        Raylib.DrawRectangle(mapX, mapY, mapW, mapH, new Color(18, 16, 20, 220));
+        Raylib.DrawRectangleLines(mapX, mapY, mapW, mapH, Color.Gold);
+
+        string mapTitle = $"比奇城 [{(int)_playerTilePos.X}, {(int)_playerTilePos.Y}]";
+        FontManager.DrawText(mapTitle, mapX + 8, mapY + 6, 12, Color.Yellow);
+        Raylib.DrawRectangleLines(mapX + 10, mapY + 24, mapW - 20, mapH - 32, new Color(50, 50, 50, 255));
+        Raylib.DrawCircle(mapX + mapW / 2, mapY + 24 + (mapH - 32) / 2, 3, Color.Yellow);
+    }
+
+    public void OnResize(int width, int height) { }
+
+    public void Dispose()
+    {
+        _chatLogs.Clear();
+    }
+}

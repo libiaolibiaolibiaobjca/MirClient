@@ -1,0 +1,14 @@
+# .NET 编译产物
+[Bb]in/
+[Oo]bj/
+
+# IDE 与操作系统临时文件
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+.DS_Store
+
+# 容器与日志
+*.log
