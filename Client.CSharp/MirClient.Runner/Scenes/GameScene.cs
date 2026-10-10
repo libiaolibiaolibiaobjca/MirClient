@@ -33,6 +33,19 @@ public class GameScene : IScene
     private float _actionTimer = 0f;
     private int _motionStep = 0;
 
+    // 玩家外观与纸娃娃属性 (1:1 盛大原版体系)
+    private int _gender = 0;   // 0: 男, 1: 女
+    private int _hairId = 1;   // 1: 经典短发, 0: 光头
+    private int _weaponId = 1; // 1: 新手木剑, 0: 空手
+    private int _dressId = 0;  // 0: 布衣
+
+    private static bool IsOneShotAction(HumanActionType action) => action switch
+    {
+        HumanActionType.Attack or HumanActionType.HeavyHit or HumanActionType.BigHit or 
+        HumanActionType.Spell or HumanActionType.Struck or HumanActionType.Die => true,
+        _ => false
+    };
+
     // 摄像机平滑像素位置
     private Vector2 _cameraPixelPos;
 
@@ -122,36 +135,78 @@ public class GameScene : IScene
             Console.WriteLine($"[色彩切换] {modeDesc}");
         }
 
-        // 玩家移动插值与动作切换
-        Vector2 diff = _targetTilePos - _playerTilePos;
-        float dist = diff.Length();
-        HumanActionType targetAction = HumanActionType.Stand;
-
-        if (dist > 0.05f)
+        // 战斗交互与热键
+        if (Raylib.IsKeyPressed(KeyboardKey.Space) || (Raylib.IsKeyDown(KeyboardKey.LeftShift) && Raylib.IsMouseButtonPressed(MouseButton.Left)))
         {
-            targetAction = _isRunning ? HumanActionType.Run : HumanActionType.Walk;
-            float speed = _isRunning ? _moveSpeed * 1.8f : _moveSpeed;
-            Vector2 step = Vector2.Normalize(diff) * speed * dt;
-            if (step.Length() > dist)
-                _playerTilePos = _targetTilePos;
+            TriggerAttack();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.One) || Raylib.IsKeyPressed(KeyboardKey.F1))
+        {
+            TriggerSpell();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.H))
+        {
+            TriggerStruck();
+        }
+
+        // F7: 切换性别 (男/女)
+        if (Raylib.IsKeyPressed(KeyboardKey.F7))
+        {
+            _gender = (_gender + 1) % 2;
+            _chatLogs.Add($"[外观切换] 性别已切换至: {(_gender == 0 ? "男" : "女")}");
+        }
+
+        // F8: 切换发型
+        if (Raylib.IsKeyPressed(KeyboardKey.F8))
+        {
+            _hairId = (_hairId + 1) % 4; // 0:光头, 1:短发, 2:束发, 3:长发
+            string hairDesc = _hairId switch { 0 => "光头", 1 => "经典短发", 2 => "束发", 3 => "长发", _ => $"发型{_hairId}" };
+            _chatLogs.Add($"[外观切换] 发型已切换至: {hairDesc}");
+        }
+
+        // F9: 切换武器
+        if (Raylib.IsKeyPressed(KeyboardKey.F9))
+        {
+            _weaponId = (_weaponId + 1) % 6; // 0:空手, 1:木剑, 2:乌木剑, 3:青铜剑, 4:八荒, 5:裁决之杖
+            string weaponDesc = _weaponId switch { 0 => "空手赤拳", 1 => "新手木剑", 2 => "乌木剑", 3 => "青铜剑", 4 => "八荒刀", 5 => "裁决之杖", _ => $"武器{_weaponId}" };
+            _chatLogs.Add($"[外观切换] 武器已切换至: {weaponDesc}");
+        }
+
+        bool isOneShot = IsOneShotAction(_currentAction);
+
+        // 非单次动作时处理移动插值与动作切换
+        if (!isOneShot)
+        {
+            Vector2 diff = _targetTilePos - _playerTilePos;
+            float dist = diff.Length();
+            HumanActionType targetAction = HumanActionType.Stand;
+
+            if (dist > 0.05f)
+            {
+                targetAction = _isRunning ? HumanActionType.Run : HumanActionType.Walk;
+                float speed = _isRunning ? _moveSpeed * 1.8f : _moveSpeed;
+                Vector2 step = Vector2.Normalize(diff) * speed * dt;
+                if (step.Length() > dist)
+                    _playerTilePos = _targetTilePos;
+                else
+                    _playerTilePos += step;
+
+                UpdateDirection(diff);
+            }
             else
-                _playerTilePos += step;
+            {
+                _playerTilePos = _targetTilePos;
+                _isRunning = false;
+                targetAction = HumanActionType.Stand;
+            }
 
-            UpdateDirection(diff);
-        }
-        else
-        {
-            _playerTilePos = _targetTilePos;
-            _isRunning = false;
-            targetAction = HumanActionType.Stand;
-        }
-
-        // 状态切换时重置步进
-        if (targetAction != _currentAction)
-        {
-            _currentAction = targetAction;
-            _motionStep = 0;
-            _actionTimer = 0f;
+            // 状态切换时重置步进
+            if (targetAction != _currentAction)
+            {
+                _currentAction = targetAction;
+                _motionStep = 0;
+                _actionTimer = 0f;
+            }
         }
 
         // 动画帧时钟推进
@@ -160,7 +215,30 @@ public class GameScene : IScene
         if (_actionTimer >= actionInfo.FTime)
         {
             _actionTimer -= actionInfo.FTime;
-            _motionStep = (_motionStep + 1) % actionInfo.Frame;
+            if (isOneShot)
+            {
+                if (_motionStep + 1 >= actionInfo.Frame)
+                {
+                    if (_currentAction == HumanActionType.Die)
+                    {
+                        _motionStep = actionInfo.Frame - 1; // 死亡停留在倒地最后一帧
+                    }
+                    else
+                    {
+                        // 攻击/施法/受击单次动作播放完毕，平滑恢复站立
+                        _currentAction = HumanActionType.Stand;
+                        _motionStep = 0;
+                    }
+                }
+                else
+                {
+                    _motionStep++;
+                }
+            }
+            else
+            {
+                _motionStep = (_motionStep + 1) % actionInfo.Frame;
+            }
         }
 
         // 摄像机平滑跟随
@@ -175,6 +253,9 @@ public class GameScene : IScene
 
     private void HandleInput(float dt)
     {
+        // 若当前处于攻击、施法、受击等单次动作中，锁定移动以保持打击姿态
+        if (IsOneShotAction(_currentAction)) return;
+
         int screenW = Raylib.GetScreenWidth();
         int screenH = Raylib.GetScreenHeight();
 
@@ -383,19 +464,85 @@ public class GameScene : IScene
         DrawPlayer(screenCenter);
     }
 
+    private void TriggerAttack()
+    {
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+        Vector2 screenCenter = new(screenW / 2f, (screenH - 140) / 2f);
+        Vector2 mouseDir = Raylib.GetMousePosition() - screenCenter;
+        if (mouseDir.Length() > 20f)
+        {
+            UpdateDirection(mouseDir);
+        }
+
+        _targetTilePos = _playerTilePos; // 挥砍打断移动
+        _currentAction = HumanActionType.Attack;
+        _motionStep = 0;
+        _actionTimer = 0f;
+    }
+
+    private void TriggerSpell()
+    {
+        _targetTilePos = _playerTilePos;
+        _currentAction = HumanActionType.Spell;
+        _motionStep = 0;
+        _actionTimer = 0f;
+    }
+
+    private void TriggerStruck()
+    {
+        _targetTilePos = _playerTilePos;
+        _currentAction = HumanActionType.Struck;
+        _motionStep = 0;
+        _actionTimer = 0f;
+    }
+
     private void DrawPlayer(Vector2 center)
     {
-        // 1. 盛大十周年原生角色模型渲染 (身体与服装: Data/Hum)
-        // 杜绝任何假几何光圈糊弄，100% 按原版动作帧与 8 方向热点偏移渲染
-        int frameIndex = HumanAction.CalculateFrameIndex(_currentAction, _direction, _motionStep, dress: 0);
-        var (actorTex, px, py) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", frameIndex);
+        // 1. 盛大十周年原生角色模型复合渲染 (Hum + Hair + Weapon)
+        int baseFrame = HumanAction.CalculateBaseFrame(_currentAction, _direction, _motionStep);
+        int bodyFrame = _dressId * HumanAction.HUMANFRAME + baseFrame;
+        int hairFrame = HumanAction.CalculateHairFrameIndex(_currentAction, _direction, _motionStep, _hairId, _gender);
+        int weaponFrame = HumanAction.CalculateWeaponFrameIndex(_currentAction, _direction, _motionStep, _weaponId, _gender);
 
-        if (actorTex.HasValue)
+        int weaponOrder = HumanAction.GetWeaponOrder(_gender, baseFrame);
+
+        var (bodyTex, bpx, bpy) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", bodyFrame);
+        var (hairTex, hpx, hpy) = _hairId > 0 ? AssetManager.GetFrameWithOffset(AssetManager.HairLib, "Hair", hairFrame) : (null, (short)0, (short)0);
+        var (weaponTex, wpx, wpy) = _weaponId > 0 ? AssetManager.GetFrameWithOffset(AssetManager.WeaponLib, "Weapon", weaponFrame) : (null, (short)0, (short)0);
+
+        void DrawWeaponLayer()
         {
-            // 原版原生热点锚定: 屏幕瓦片中心 + (Px, Py)
-            int drawX = (int)(center.X + px);
-            int drawY = (int)(center.Y + py);
-            Raylib.DrawTexture(actorTex.Value, drawX, drawY, Color.White);
+            if (weaponTex.HasValue)
+            {
+                Raylib.DrawTexture(weaponTex.Value, (int)(center.X + wpx), (int)(center.Y + wpy), Color.White);
+            }
+        }
+
+        void DrawBodyAndHairLayers()
+        {
+            if (bodyTex.HasValue)
+            {
+                Raylib.DrawTexture(bodyTex.Value, (int)(center.X + bpx), (int)(center.Y + bpy), Color.White);
+            }
+            if (hairTex.HasValue)
+            {
+                Raylib.DrawTexture(hairTex.Value, (int)(center.X + hpx), (int)(center.Y + hpy), Color.White);
+            }
+        }
+
+        // 严格遵循盛大原版 1:1 WORDER 遮挡次序决策
+        if (weaponOrder == 0)
+        {
+            // 武器在身后 (北向背负或身侧挥斩后收): Weapon -> Body -> Hair
+            DrawWeaponLayer();
+            DrawBodyAndHairLayers();
+        }
+        else
+        {
+            // 武器在身前 (南向正面握持或前挥斩): Body -> Hair -> Weapon
+            DrawBodyAndHairLayers();
+            DrawWeaponLayer();
         }
 
         // 2. 头顶原版经典血条与角色名称 (定位于角色头部上方)
@@ -413,6 +560,13 @@ public class GameScene : IScene
         string name = "逐鹿天下";
         int nameW = FontManager.MeasureText(name, 12);
         FontManager.DrawTextWithShadow(name, (int)(center.X - nameW / 2f), headY - 16, 12, Color.Yellow, Color.Black);
+
+        // 显示外观说明
+        string hairDesc = _hairId switch { 0 => "光头", 1 => "短发", 2 => "束发", 3 => "长发", _ => $"发型{_hairId}" };
+        string weaponDesc = _weaponId switch { 0 => "空手", 1 => "木剑", 2 => "乌木剑", 3 => "青铜剑", 4 => "八荒", 5 => "裁决", _ => $"武器{_weaponId}" };
+        string lookInfo = $"[{(_gender == 0 ? "男" : "女")} | {weaponDesc} | {hairDesc}]";
+        int infoW = FontManager.MeasureText(lookInfo, 10);
+        FontManager.DrawTextWithShadow(lookInfo, (int)(center.X - infoW / 2f), headY - 28, 10, Color.LightGray, Color.Black);
     }
 
     private void RenderBottomHud(int screenW, int screenH)
