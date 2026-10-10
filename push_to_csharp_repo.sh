@@ -26,7 +26,7 @@ cd "$EXPORT_DIR"
 git init
 git branch -M main
 git add .
-git commit -m "feat: initial commit for MirClient.CSharp (OpenSpec + .NET 8 core protocol)"
+git commit -m "feat: complete 3-stage gateway network integration (LoginGate 7000 -> SelChrGate 7100 -> GameGate 7200) with 23 passing tests"
 git remote add origin "$TARGET_REPO"
 
 echo "[4/4] 推送到远程仓库: $TARGET_REPO ..."
