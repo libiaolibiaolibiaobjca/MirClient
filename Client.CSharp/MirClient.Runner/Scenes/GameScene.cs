@@ -135,13 +135,23 @@ public class GameScene : IScene
         }
 
         // 初始化场景实体 (比奇老兵 NPC 与野外怪物)
-        _entities.Clear();
-        _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
-        _entities.Add(new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(332, 268), appr: 0, maxHp: 80));
-        _entities.Add(new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(328, 267), appr: 1, maxHp: 100));
-        _entities.Add(new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 266), appr: 2, maxHp: 150));
-        _entities.Add(new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(329, 270), appr: 3, maxHp: 120));
-        _chatLogs.Add("[世界] 比奇省老兵已就位，城外刷新野怪【稻草人】、【钉耙猫】、【半兽人】！");
+        lock (_entities)
+        {
+            _entities.Clear();
+            if (!_engine.NetworkSession.IsConnected)
+            {
+                _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
+                _entities.Add(new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(332, 268), appr: 0, maxHp: 80));
+                _entities.Add(new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(328, 267), appr: 1, maxHp: 100));
+                _entities.Add(new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 266), appr: 2, maxHp: 150));
+                _entities.Add(new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(329, 270), appr: 3, maxHp: 120));
+                _chatLogs.Add("[世界] [离线沙盒] 比奇省老兵已就位，城外刷新野怪【稻草人】、【钉耙猫】、【半兽人】！");
+            }
+            else
+            {
+                _chatLogs.Add("[世界] [联机在线] 已接入 7200 游戏网关，正在监听并渲染服务端动态世界实体...");
+            }
+        }
     }
 
     public void Update(float dt)
@@ -272,9 +282,12 @@ public class GameScene : IScene
         }
 
         // 推进所有场景实体逻辑与动画
-        foreach (var entity in _entities)
+        lock (_entities)
         {
-            entity.UpdateAnimation(dt);
+            foreach (var entity in _entities)
+            {
+                entity.UpdateAnimation(dt);
+            }
         }
 
         // 摄像机平滑跟随
@@ -309,6 +322,7 @@ public class GameScene : IScene
             {
                 _targetTilePos = next;
                 _isRunning = Raylib.IsKeyDown(KeyboardKey.LeftShift);
+                SendMovePacket(next, _isRunning);
             }
             return;
         }
@@ -326,6 +340,7 @@ public class GameScene : IScene
                 {
                     _targetTilePos = next;
                     _isRunning = true;
+                    SendMovePacket(next, true);
                 }
             }
         }
@@ -342,8 +357,24 @@ public class GameScene : IScene
                 {
                     _targetTilePos = next;
                     _isRunning = false;
+                    SendMovePacket(next, false);
                 }
             }
+        }
+    }
+
+    private void SendMovePacket(Vector2 targetPos, bool isRunning)
+    {
+        if (_engine.NetworkSession.IsConnected)
+        {
+            DefaultMessage moveMsg = new(
+                ident: isRunning ? ProtocolConsts.CM_RUN : ProtocolConsts.CM_WALK,
+                recog: 0,
+                param: (ushort)targetPos.X,
+                tag: (ushort)targetPos.Y,
+                series: (ushort)_direction
+            );
+            _ = _engine.NetworkSession.SendGatePacketAsync(moveMsg);
         }
     }
 
@@ -500,15 +531,18 @@ public class GameScene : IScene
         var renderItems = new List<(float Y, Action Draw)>();
 
         // 收集所有可见场景实体 (NPC、怪物)
-        foreach (var entity in _entities)
+        lock (_entities)
         {
-            Vector2 rel = entity.TilePos - _playerTilePos;
-            Vector2 entityPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
-            // 视口粗裁剪 (超出屏幕边缘则跳过)
-            if (entityPixel.X < -120 || entityPixel.X > viewportW + 120 || entityPixel.Y < -120 || entityPixel.Y > viewportH + 120)
-                continue;
+            foreach (var entity in _entities)
+            {
+                Vector2 rel = entity.TilePos - _playerTilePos;
+                Vector2 entityPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+                // 视口粗裁剪 (超出屏幕边缘则跳过)
+                if (entityPixel.X < -120 || entityPixel.X > viewportW + 120 || entityPixel.Y < -120 || entityPixel.Y > viewportH + 120)
+                    continue;
 
-            renderItems.Add((entity.TilePos.Y, () => DrawEntity(entity, entityPixel)));
+                renderItems.Add((entity.TilePos.Y, () => DrawEntity(entity, entityPixel)));
+            }
         }
 
         // 添加玩家自身
@@ -538,11 +572,28 @@ public class GameScene : IScene
         _motionStep = 0;
         _actionTimer = 0f;
 
+        // 若处于联机状态，向网关上报攻击指令 CM_HIT
+        if (_engine.NetworkSession.IsConnected)
+        {
+            DefaultMessage hitMsg = new(
+                ident: ProtocolConsts.CM_HIT,
+                recog: 0,
+                param: (ushort)_playerTilePos.X,
+                tag: (ushort)_playerTilePos.Y,
+                series: (ushort)_direction
+            );
+            _ = _engine.NetworkSession.SendGatePacketAsync(hitMsg);
+        }
+
         // 计算前方攻击落点瓦片 (正前方 1 格)
         Vector2 frontTile = MapEntity.GetFrontTile(_playerTilePos, _direction);
 
         // 查找命中目标实体
-        MapEntity? target = _entities.FirstOrDefault(e => !e.IsDead && Vector2.Distance(e.TilePos, frontTile) < 0.9f);
+        MapEntity? target = null;
+        lock (_entities)
+        {
+            target = _entities.FirstOrDefault(e => !e.IsDead && Vector2.Distance(e.TilePos, frontTile) < 0.9f);
+        }
         if (target != null)
         {
             if (target.Type == EntityType.Monster)
@@ -906,10 +957,153 @@ public class GameScene : IScene
             case ProtocolConsts.SM_LOGON:
                 _chatLogs.Add($"[世界] 收到服务端 SM_LOGON 确认！生命值上限: {header.Recog}");
                 break;
+
             case ProtocolConsts.SM_CHANGEMAP:
+            {
                 string mapName = EDCode.DecodeText(payload);
                 _chatLogs.Add($"[世界] 服务端指示切换地图: {mapName}");
                 break;
+            }
+
+            case ProtocolConsts.SM_SPURN:
+            case ProtocolConsts.SM_NOWACTOR:
+            {
+                int entityId = header.Recog;
+                int x = header.Param;
+                int y = header.Tag;
+                int dir = header.Series;
+                string decPayload = EDCode.DecodeText(payload);
+                var parts = decPayload.Split('/');
+                string entityName = parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]) 
+                    ? parts[0] 
+                    : (header.Ident == ProtocolConsts.SM_NOWACTOR ? "行者" : "异兽");
+                int appr = parts.Length > 1 && int.TryParse(parts[1], out int a) ? a : 0;
+                int maxHp = parts.Length > 3 && int.TryParse(parts[3], out int hp) ? hp : 100;
+
+                EntityType type = header.Ident == ProtocolConsts.SM_NOWACTOR 
+                    ? EntityType.Player 
+                    : (appr == 0 && entityName.Contains("老兵") ? EntityType.Npc : EntityType.Monster);
+
+                lock (_entities)
+                {
+                    var existing = _entities.FirstOrDefault(e => e.RecogId == entityId);
+                    if (existing == null)
+                    {
+                        var newEntity = new MapEntity(entityId, entityName, type, new Vector2(x, y), appr, maxHp)
+                        {
+                            Direction = dir
+                        };
+                        _entities.Add(newEntity);
+                        _chatLogs.Add($"[世界广播] 实体【{entityName}】现身于 [{x}, {y}]！");
+                    }
+                    else
+                    {
+                        existing.TilePos = new Vector2(x, y);
+                        existing.Direction = dir;
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_TURN:
+            {
+                lock (_entities)
+                {
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (entity != null)
+                    {
+                        entity.Direction = header.Series;
+                        entity.CurrentAction = HumanActionType.Stand;
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_WALK:
+            case ProtocolConsts.SM_RUN:
+            {
+                lock (_entities)
+                {
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (entity != null)
+                    {
+                        entity.TilePos = new Vector2(header.Param, header.Tag);
+                        entity.Direction = header.Series;
+                        entity.CurrentAction = header.Ident == ProtocolConsts.SM_RUN ? HumanActionType.Run : HumanActionType.Walk;
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_HIT:
+            case ProtocolConsts.SM_POWERHIT:
+            {
+                lock (_entities)
+                {
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (entity != null)
+                    {
+                        entity.Direction = header.Series;
+                        entity.TriggerAction(HumanActionType.Attack);
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_STRUCK:
+            {
+                lock (_entities)
+                {
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (entity != null)
+                    {
+                        int curHp = header.Param;
+                        int maxHp = header.Tag;
+                        int dmg = header.Series;
+                        entity.Hp = curHp;
+                        if (maxHp > 0) entity.MaxHp = maxHp;
+                        entity.TakeDamage(dmg);
+                    }
+                    else if (header.Recog == 0) // 本地玩家自身受击
+                    {
+                        _hp = Math.Max(0f, (float)header.Param);
+                        TriggerStruck();
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_DEATH:
+            {
+                lock (_entities)
+                {
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (entity != null)
+                    {
+                        entity.TakeDamage(99999);
+                        _chatLogs.Add($"[世界] 【{entity.Name}】倒地阵亡！");
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_DISAPPEAR:
+            case ProtocolConsts.SM_SKELETON:
+            {
+                lock (_entities)
+                {
+                    _entities.RemoveAll(e => e.RecogId == header.Recog);
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_HEAR:
+            {
+                string msg = EDCode.DecodeText(payload);
+                _chatLogs.Add($"[世界传音] {msg}");
+                break;
+            }
+
             default:
                 break;
         }

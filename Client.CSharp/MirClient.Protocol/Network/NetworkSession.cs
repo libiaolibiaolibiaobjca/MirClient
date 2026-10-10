@@ -67,6 +67,17 @@ public class NetworkSession : IDisposable
     }
 
     /// <summary>
+    /// 向当前连接的网关发送标准封包（如 CM_WALK, CM_RUN, CM_HIT 等）
+    /// </summary>
+    public async Task SendGatePacketAsync(DefaultMessage msg, string payload = "")
+    {
+        if (_conn.IsConnected)
+        {
+            await _conn.SendGatePacketAsync(msg, payload);
+        }
+    }
+
+    /// <summary>
     /// 一键驱动完整登录与选角流水线至 7200 游戏网关
     /// </summary>
     public async Task<bool> StartLoginPipelineAsync(string host, int port, string account, string password)
