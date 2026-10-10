@@ -61,6 +61,9 @@ public class GameScene : IScene
     // 全屏技能法术与粒子光效系统
     private readonly SkillEffectManager _skillFx = new();
 
+    // 右上角雷达小地图显隐 (TAB 键切换)
+    private bool _showMiniMap = true;
+
     private static bool IsOneShotAction(HumanActionType action) => action switch
     {
         HumanActionType.Attack or HumanActionType.HeavyHit or HumanActionType.BigHit or 
@@ -116,7 +119,7 @@ public class GameScene : IScene
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 技能法术: [1/F1] 雷电术；[2/F2] 烈火剑法；[3/F3] 治愈术；[4/F4] 火球术 (支持点击底板快捷槽施法)。");
-        _chatLogs.Add("[系统] 快捷面板: [F9] 打开经典40格包裹；[F10] 打开角色装备与属性面板；[F11] 切换色彩模式。");
+        _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
 
         // 写入资源诊断日志 client_diagnostic.log
         try
@@ -246,6 +249,12 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.F10))
         {
             _showEquip = !_showEquip;
+        }
+
+        // TAB: 开关小地图雷达
+        if (Raylib.IsKeyPressed(KeyboardKey.Tab))
+        {
+            _showMiniMap = !_showMiniMap;
         }
 
         bool isOneShot = IsOneShotAction(_currentAction);
@@ -400,10 +409,17 @@ public class GameScene : IScene
                 }
             }
         }
-        // 鼠标左键：点击地面走动
+        // 鼠标左键：点击地面走动或小地图寻路
         else if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             Vector2 mousePos = Raylib.GetMousePosition();
+
+            // 若点击在小地图内部，触发自动寻路奔跑导航
+            if (HandleMiniMapClick(mousePos))
+            {
+                return;
+            }
+
             if (mousePos.Y < screenH - 150)
             {
                 Vector2 screenCenter = new(screenW / 2f, (screenH - 140) / 2f);
@@ -1184,18 +1200,122 @@ public class GameScene : IScene
 
     private void RenderMiniMap(int screenW)
     {
-        int mapW = 150;
-        int mapH = 120;
+        int mapW = 168;
+        int mapH = 142;
         int mapX = screenW - mapW - 12;
         int mapY = 12;
 
-        Raylib.DrawRectangle(mapX, mapY, mapW, mapH, new Color(18, 16, 20, 220));
-        Raylib.DrawRectangleLines(mapX, mapY, mapW, mapH, Color.Gold);
+        if (!_showMiniMap)
+        {
+            // 折叠状态：右上角显示精美迷你唤醒按钮
+            Rectangle minRect = new(screenW - 90, 12, 78, 24);
+            bool hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), minRect);
+            Raylib.DrawRectangleRec(minRect, new Color(18, 14, 12, 230));
+            Raylib.DrawRectangleLinesEx(minRect, 1, hover ? Color.Gold : new Color(120, 95, 45, 220));
+            FontManager.DrawText("TAB 雷达", screenW - 80, 17, 11, hover ? Color.Yellow : Color.LightGray);
+            if (hover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                _showMiniMap = true;
+            }
+            return;
+        }
 
-        string mapTitle = $"比奇城 [{(int)_playerTilePos.X}, {(int)_playerTilePos.Y}]";
-        FontManager.DrawText(mapTitle, mapX + 8, mapY + 6, 12, Color.Yellow);
-        Raylib.DrawRectangleLines(mapX + 10, mapY + 24, mapW - 20, mapH - 32, new Color(50, 50, 50, 255));
-        Raylib.DrawCircle(mapX + mapW / 2, mapY + 24 + (mapH - 32) / 2, 3, Color.Yellow);
+        // 1. 展开状态：盛大原版风格深曜石底框与古典金线浮雕
+        Rectangle fullRect = new(mapX, mapY, mapW, mapH);
+        Raylib.DrawRectangleRec(fullRect, new Color(12, 10, 8, 235));
+        Raylib.DrawRectangleLinesEx(fullRect, 1, Color.Gold);
+
+        // 2. 标题栏与实时坐标：例如 "[比奇省] 330, 268"
+        string mapTitle = $"[比奇省] {(int)_playerTilePos.X}, {(int)_playerTilePos.Y}";
+        FontManager.DrawTextWithShadow(mapTitle, mapX + 8, mapY + 5, 11, Color.Lime, Color.Black);
+
+        // 折叠按键提示
+        FontManager.DrawText("[TAB]", mapX + mapW - 38, mapY + 5, 10, Color.DarkGray);
+
+        // 3. 计算坐标投影器
+        int mapCols = _mapLoader.Width > 0 ? _mapLoader.Width : 800;
+        int mapRows = _mapLoader.Height > 0 ? _mapLoader.Height : 600;
+
+        float viewX = mapX + 6;
+        float viewY = mapY + 22;
+        float viewW = mapW - 12;
+        float viewH = mapH - 28;
+
+        MiniMapProjection proj = new(mapCols, mapRows, viewX, viewY, viewW, viewH);
+
+        // 4. 地图底图层：尝试从 MMapLib 获取原版缩略图，若无则使用墨绿拓扑网格兜底
+        Texture2D? mmapTex = AssetManager.GetTexture(AssetManager.MMapLib, "mmap", 0);
+        if (mmapTex.HasValue)
+        {
+            Rectangle src = new(0, 0, mmapTex.Value.Width, mmapTex.Value.Height);
+            Rectangle dest = new(viewX, viewY, viewW, viewH);
+            Raylib.DrawTexturePro(mmapTex.Value, src, dest, Vector2.Zero, 0f, new Color(255, 255, 255, 220));
+        }
+        else
+        {
+            Raylib.DrawRectangle((int)viewX, (int)viewY, (int)viewW, (int)viewH, new Color(15, 26, 18, 240));
+        }
+
+        // 内视口细金边框
+        Raylib.DrawRectangleLines((int)viewX, (int)viewY, (int)viewW, (int)viewH, new Color(75, 60, 35, 220));
+
+        // 5. 动态实体图例 (NPC 黄点, 怪物红点)
+        lock (_entities)
+        {
+            foreach (var ent in _entities)
+            {
+                if (ent.IsDead) continue;
+                Vector2 entPx = proj.WorldToMiniMap(ent.TilePos);
+                if (ent.Type == EntityType.Npc)
+                {
+                    Raylib.DrawCircle((int)entPx.X, (int)entPx.Y, 2.5f, Color.Gold);
+                }
+                else if (ent.Type == EntityType.Monster)
+                {
+                    Raylib.DrawCircle((int)entPx.X, (int)entPx.Y, 2.0f, Color.Red);
+                }
+            }
+        }
+
+        // 6. 玩家自身位置：动态呼吸发光红点 + 视向波束
+        Vector2 playerPx = proj.WorldToMiniMap(_playerTilePos);
+        float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+        Raylib.DrawCircle((int)playerPx.X, (int)playerPx.Y, 3.5f + pulse * 2f, new Color(255, 60, 60, 150));
+        Raylib.DrawCircle((int)playerPx.X, (int)playerPx.Y, 2.5f, Color.White);
+
+        // 视向朝向扫描波束
+        float angle = _direction * 45f;
+        float rad = angle * (MathF.PI / 180f);
+        Vector2 dirVec = new(MathF.Cos(rad), MathF.Sin(rad));
+        Raylib.DrawLine((int)playerPx.X, (int)playerPx.Y, (int)(playerPx.X + dirVec.X * 8f), (int)(playerPx.Y + dirVec.Y * 8f), Color.Yellow);
+    }
+
+    private bool HandleMiniMapClick(Vector2 mousePos)
+    {
+        if (!_showMiniMap) return false;
+
+        int screenW = Raylib.GetScreenWidth();
+        int mapW = 168;
+        int mapH = 142;
+        int mapX = screenW - mapW - 12;
+        int mapY = 12;
+
+        int mapCols = _mapLoader.Width > 0 ? _mapLoader.Width : 800;
+        int mapRows = _mapLoader.Height > 0 ? _mapLoader.Height : 600;
+
+        MiniMapProjection proj = new(mapCols, mapRows, mapX + 6, mapY + 22, mapW - 12, mapH - 28);
+
+        if (proj.IsInside(mousePos))
+        {
+            Vector2 targetTile = proj.MiniMapToWorld(mousePos);
+            _targetTilePos = targetTile;
+            _isRunning = true;
+            SendMovePacket(targetTile, true);
+            _chatLogs.Add($"[雷达导航] 自动寻路前往坐标: [{(int)targetTile.X}, {(int)targetTile.Y}]");
+            return true;
+        }
+
+        return false;
     }
 
     private void HandleServerGamePacket(DefaultMessage header, string payload)
