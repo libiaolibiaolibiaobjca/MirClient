@@ -65,6 +65,25 @@ public static class EDCode
     }
 
     /// <summary>
+    /// 将普通文本（按 GBK 编码）编码为 6-bit ASCII 字符串 (对应 Delphi EncodeString)
+    /// </summary>
+    public static string EncodeString(string str)
+    {
+        if (string.IsNullOrEmpty(str)) return string.Empty;
+        return EncodeBytes(GBK.GetBytes(str));
+    }
+
+    /// <summary>
+    /// 将 6-bit ASCII 字符串解码并按 GBK 还原为明文字符串 (对应 Delphi DeCodeString)
+    /// </summary>
+    public static string DecodeText(string asciiStr)
+    {
+        if (string.IsNullOrEmpty(asciiStr)) return string.Empty;
+        byte[] bytes = DecodeString(asciiStr);
+        return GBK.GetString(bytes);
+    }
+
+    /// <summary>
     /// 将 6-bit ASCII 字符串解码为原始字节数组 (对应 DeCodeBuf)
     /// </summary>
     public static byte[] DecodeString(string asciiStr)

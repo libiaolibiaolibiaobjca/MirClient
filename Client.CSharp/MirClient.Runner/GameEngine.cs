@@ -13,7 +13,7 @@ namespace MirClient.Runner;
 public class GameEngine : IDisposable
 {
     private readonly ClientConfig _config;
-    private readonly MirConnection _connection = new();
+    public NetworkSession NetworkSession { get; } = new();
     private IScene _currentScene;
     private readonly LoginScene _loginScene;
     private readonly GameScene _gameScene;
@@ -21,7 +21,7 @@ public class GameEngine : IDisposable
     private readonly ConcurrentQueue<string> _networkEvents = new();
     private bool _isRunning = false;
 
-    public bool IsConnected => _connection.IsConnected;
+    public bool IsConnected => NetworkSession.IsConnected;
 
     public GameEngine(ClientConfig config)
     {
@@ -83,67 +83,22 @@ public class GameEngine : IDisposable
     }
 
     /// <summary>
-    /// 当在界面中修改 IP / 端口后，热重连服务器
+    /// 当在界面中修改 IP / 端口后重置网络状态
     /// </summary>
     public void ReconnectServer()
     {
-        try
-        {
-            _connection.Disconnect();
-        }
-        catch { }
-        StartNetworkWorker();
+        NetworkSession.Disconnect();
     }
 
     private void StartNetworkWorker()
     {
-        _connection.OnConnected += (s, e) =>
-        {
-            _networkEvents.Enqueue($"[网络] 成功连通服务端 {_config.ServerAddr}:{_config.ServerPort}");
-        };
-
-        _connection.OnDisconnected += (s, reason) =>
-        {
-            _networkEvents.Enqueue($"[网络] 连接断开: {reason}");
-        };
-
-        _connection.OnPacketReceived += (s, e) =>
-        {
-            _networkEvents.Enqueue($"[收到响应] Ident={e.Header.Ident}, Recog={e.Header.Recog}");
-        };
-
-        // 异步尝试连网
-        _ = Task.Run(async () =>
-        {
-            while (_isRunning && !_connection.IsConnected)
-            {
-                try
-                {
-                    await _connection.ConnectAsync(_config.ServerAddr, _config.ServerPort, timeoutMs: 3000);
-                    // 连接成功后发送探针握手
-                    DefaultMessage probeMsg = new(
-                        ident: ProtocolConsts.CM_QUERYCHR,
-                        recog: 8888,
-                        param: 100,
-                        tag: 200,
-                        series: 1
-                    );
-                    await _connection.SendPacketAsync(probeMsg, "guest/probe");
-                    break;
-                }
-                catch
-                {
-                    // 失败后等待 3 秒自动重连
-                    await Task.Delay(3000);
-                }
-            }
-        });
+        // 网络由 NetworkSession 统一驱动
     }
 
     private void Shutdown()
     {
         _isRunning = false;
-        _connection.Dispose();
+        NetworkSession.Dispose();
         TextureManager.UnloadAll();
         FontManager.Dispose();
         Raylib.CloseWindow();

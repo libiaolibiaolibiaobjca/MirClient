@@ -34,6 +34,10 @@ public class LoginScene : IScene
     private const int DOOR_END_FRAME = 122;
     private float _doorTimer = 0f;
 
+    // 网络认证异步状态
+    private bool _isLoggingIn = false;
+    private string _loginStatusMsg = "";
+
     // 服务器与目录设置弹窗状态
     private bool _showConfigModal = false;
     private string _editServerIp = "192.168.0.103";
@@ -202,11 +206,39 @@ public class LoginScene : IScene
             StartDoorOpening();
     }
 
-    private void StartDoorOpening()
+    private async void StartDoorOpening()
     {
-        _isDoorOpening = true;
-        _doorFrame = DOOR_START_FRAME;
-        _doorTimer = 0f;
+        if (_isDoorOpening || _isLoggingIn) return;
+
+        // 若用户按住 Shift 强行离线体验
+        if (Raylib.IsKeyDown(KeyboardKey.LeftShift))
+        {
+            _isDoorOpening = true;
+            _doorFrame = DOOR_START_FRAME;
+            _doorTimer = 0f;
+            return;
+        }
+
+        _isLoggingIn = true;
+        _loginStatusMsg = "正在连接登录网关 7000 进行身份验证...";
+
+        string host = string.IsNullOrWhiteSpace(_config.ServerAddr) ? "192.168.0.103" : _config.ServerAddr;
+        int port = _config.ServerPort <= 0 ? 7000 : _config.ServerPort;
+
+        bool ok = await _engine.NetworkSession.StartLoginPipelineAsync(host, port, _username, _password);
+        _isLoggingIn = false;
+
+        if (ok)
+        {
+            _loginStatusMsg = $"登录成功！已选定角色【{_engine.NetworkSession.CharacterName}】，推开石门进入游戏世界！";
+            _isDoorOpening = true;
+            _doorFrame = DOOR_START_FRAME;
+            _doorTimer = 0f;
+        }
+        else
+        {
+            _loginStatusMsg = $"{_engine.NetworkSession.StatusText} (提示: Shift+回车可离线体验)";
+        }
     }
 
     private void HandleBackspace(float dt, Func<string> getter, Action<string> setter)
@@ -449,9 +481,16 @@ public class LoginScene : IScene
 
         Raylib.DrawRectangleRec(btnRect, hover ? new Color(130, 95, 35, 255) : new Color(55, 42, 30, 255));
         Raylib.DrawRectangleLinesEx(btnRect, 2, hover ? Color.Yellow : Color.Gold);
-        string enterText = "进入玛法大陆";
+        string enterText = _isLoggingIn ? "正在认证..." : "进入玛法大陆";
         int tW = FontManager.MeasureText(enterText, 18);
         FontManager.DrawTextWithShadow(enterText, btnX + (btnW - tW) / 2, btnY + 11, 18, Color.White, Color.Black);
+
+        // 网络认证状态提示
+        if (!string.IsNullOrEmpty(_loginStatusMsg))
+        {
+            int msgW = FontManager.MeasureText(_loginStatusMsg, 14);
+            FontManager.DrawTextWithShadow(_loginStatusMsg, (screenW - msgW) / 2, btnY + 52, 14, Color.Yellow, Color.Black);
+        }
     }
 
     private void RenderTopBar(int screenW)

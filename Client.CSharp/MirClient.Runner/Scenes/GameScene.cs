@@ -34,6 +34,7 @@ public class GameScene : IScene
     private int _motionStep = 0;
 
     // 玩家外观与纸娃娃属性 (1:1 盛大原版体系)
+    private string _playerName = "逐鹿天下";
     private int _gender = 0;   // 0: 男, 1: 女
     private int _hairId = 1;   // 1: 经典短发, 0: 光头
     private int _weaponId = 1; // 1: 新手木剑, 0: 空手
@@ -70,15 +71,32 @@ public class GameScene : IScene
         _engine = engine;
         _config = config;
         _cameraPixelPos = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+
+        // 订阅真实 7200 游戏网关广播
+        _engine.NetworkSession.OnGamePacket += HandleServerGamePacket;
+        _engine.NetworkSession.OnLog += msg => _chatLogs.Add(msg);
     }
 
     public void Init()
     {
         _chatLogs.Clear();
         _chatLogs.Add("[系统] 欢迎回到热血传奇！已连接至盛大十周年原生资产引擎。");
-        _chatLogs.Add($"[系统] 当前服务器: {_config.ServerAddr}:{_config.ServerPort} (区服: {_config.ServerName})");
-        _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游。");
-        _chatLogs.Add("[系统] 调试功能: [F11] 实时切换4种色彩解码模式并刷新材质！");
+
+        // 若网络会话已完成选角，同步主角真实属性
+        if (!string.IsNullOrWhiteSpace(_engine.NetworkSession.CharacterName))
+        {
+            _playerName = _engine.NetworkSession.CharacterName;
+            _gender = _engine.NetworkSession.CharacterGender;
+            _hairId = _engine.NetworkSession.CharacterHair;
+            _chatLogs.Add($"[联机成功] 已通过 7200 游戏网关进入世界，当前角色:【{_playerName}】！");
+        }
+        else
+        {
+            _chatLogs.Add($"[离线模式] 当前以本地体验模式运行 (区服: {_config.ServerName})。");
+        }
+
+        _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
+        _chatLogs.Add("[系统] 调试功能: [F11] 实时切换色彩解码模式；[F8/F9] 动态换发型与武器！");
 
         // 写入资源诊断日志 client_diagnostic.log
         try
@@ -620,7 +638,7 @@ public class GameScene : IScene
         Raylib.DrawRectangle(hpBarX, hpBarY, (int)(hpBarW * hpRate), hpBarH, Color.Green);
         Raylib.DrawRectangleLines(hpBarX, hpBarY, hpBarW, hpBarH, Color.Gold);
 
-        string name = "逐鹿天下";
+        string name = _playerName;
         int nameW = FontManager.MeasureText(name, 12);
         FontManager.DrawTextWithShadow(name, (int)(center.X - nameW / 2f), headY - 16, 12, Color.Yellow, Color.Black);
 
@@ -879,6 +897,22 @@ public class GameScene : IScene
         FontManager.DrawText(mapTitle, mapX + 8, mapY + 6, 12, Color.Yellow);
         Raylib.DrawRectangleLines(mapX + 10, mapY + 24, mapW - 20, mapH - 32, new Color(50, 50, 50, 255));
         Raylib.DrawCircle(mapX + mapW / 2, mapY + 24 + (mapH - 32) / 2, 3, Color.Yellow);
+    }
+
+    private void HandleServerGamePacket(DefaultMessage header, string payload)
+    {
+        switch (header.Ident)
+        {
+            case ProtocolConsts.SM_LOGON:
+                _chatLogs.Add($"[世界] 收到服务端 SM_LOGON 确认！生命值上限: {header.Recog}");
+                break;
+            case ProtocolConsts.SM_CHANGEMAP:
+                string mapName = EDCode.DecodeText(payload);
+                _chatLogs.Add($"[世界] 服务端指示切换地图: {mapName}");
+                break;
+            default:
+                break;
+        }
     }
 
     public void OnResize(int width, int height) { }

@@ -21,7 +21,7 @@ public class PacketReceivedEventArgs : EventArgs
 }
 
 /// <summary>
-/// 异步 TCP 网络客户端引擎 (处理传奇标准 #...! 封包、粘包断包与状态通知)
+/// 异步 TCP 网络客户端引擎 (1:1 支持 OpenMir2 标准 #...! 封包、粘包切分与双向加解密)
 /// </summary>
 public class MirConnection : IDisposable
 {
@@ -33,6 +33,7 @@ public class MirConnection : IDisposable
     public bool IsConnected => _client != null && _client.Connected;
 
     public event EventHandler<PacketReceivedEventArgs>? OnPacketReceived;
+    public event EventHandler<string>? OnRawPacketReceived;
     public event EventHandler? OnConnected;
     public event EventHandler<string>? OnDisconnected;
 
@@ -59,16 +60,15 @@ public class MirConnection : IDisposable
     }
 
     /// <summary>
-    /// 发送标准封包
+    /// 发送带有网关前缀的标准数据包 (#1<header><payload>!)
     /// </summary>
-    public async Task SendPacketAsync(DefaultMessage header, string payload = "")
+    public async Task SendGatePacketAsync(DefaultMessage header, string payload = "")
     {
         if (_stream == null || !IsConnected)
-        {
             throw new InvalidOperationException("客户端尚未连接到服务端");
-        }
 
-        string packet = EDCode.MakePacket(header, payload);
+        string inner = EDCode.EncodeMessage(header) + payload;
+        string packet = $"#1{inner}!";
         byte[] bytes = EDCode.GBK.GetBytes(packet);
 
         await _stream.WriteAsync(bytes, 0, bytes.Length);
@@ -76,7 +76,27 @@ public class MirConnection : IDisposable
     }
 
     /// <summary>
-    /// 接收流处理循环 (严格按 '!' 分包)
+    /// 发送原始文本封包 (#1<rawText>!)
+    /// </summary>
+    public async Task SendRawPacketAsync(string rawText)
+    {
+        if (_stream == null || !IsConnected)
+            throw new InvalidOperationException("客户端尚未连接到服务端");
+
+        string packet = $"#1{rawText}!";
+        byte[] bytes = EDCode.GBK.GetBytes(packet);
+
+        await _stream.WriteAsync(bytes, 0, bytes.Length);
+        await _stream.FlushAsync();
+    }
+
+    /// <summary>
+    /// 兼容旧式发送接口
+    /// </summary>
+    public Task SendPacketAsync(DefaultMessage header, string payload = "") => SendGatePacketAsync(header, payload);
+
+    /// <summary>
+    /// 接收流处理循环 (严格按 '!' 分包截断)
     /// </summary>
     private async Task ReceiveLoopAsync(CancellationToken token)
     {
@@ -116,25 +136,39 @@ public class MirConnection : IDisposable
             string fullPacket = content[..(endIdx + 1)];
             _receiveBuffer.Remove(0, endIdx + 1);
 
-            // 清理多余控制字符
-            fullPacket = fullPacket.Trim('\r', '\n');
+            // 清理多余控制字符与结束标符
+            fullPacket = fullPacket.Trim('\r', '\n', '$');
             if (string.IsNullOrEmpty(fullPacket)) continue;
 
-            // 标准包以 '#' 起始且至少拥有 16 字节包头 + 结束符 '!'
-            int startIdx = fullPacket.IndexOf('#');
-            if (startIdx >= 0 && (fullPacket.Length - startIdx) >= 18)
-            {
-                string encodedHeader = fullPacket.Substring(startIdx + 1, 16);
-                string payload = fullPacket.Substring(startIdx + 17, fullPacket.Length - (startIdx + 18));
+            OnRawPacketReceived?.Invoke(this, fullPacket);
 
-                try
+            // 寻找包头起始符 '#'
+            int startIdx = fullPacket.IndexOf('#');
+            if (startIdx >= 0)
+            {
+                // 跳过 '#' 以及可能跟随的网关前缀（如 '#1' 或 '#+' 等）
+                int headerStart = startIdx + 1;
+                if (headerStart < fullPacket.Length && char.IsDigit(fullPacket[headerStart]))
                 {
-                    DefaultMessage header = EDCode.DecodeMessage(encodedHeader);
-                    OnPacketReceived?.Invoke(this, new PacketReceivedEventArgs(header, payload, fullPacket));
+                    headerStart++; // 跳过前缀数字 '1'
                 }
-                catch
+
+                // 检查剩余长度是否满足 16 字节头部 + 结束符 '!'
+                int remaining = fullPacket.Length - headerStart;
+                if (remaining >= 17) // 16 字节头部 + 至少 1 字节 '!'
                 {
-                    // 忽略格式损坏的脏包
+                    string encodedHeader = fullPacket.Substring(headerStart, 16);
+                    string payload = fullPacket.Substring(headerStart + 16, remaining - 17);
+
+                    try
+                    {
+                        DefaultMessage header = EDCode.DecodeMessage(encodedHeader);
+                        OnPacketReceived?.Invoke(this, new PacketReceivedEventArgs(header, payload, fullPacket));
+                    }
+                    catch
+                    {
+                        // 忽略格式损坏的脏包
+                    }
                 }
             }
         }
