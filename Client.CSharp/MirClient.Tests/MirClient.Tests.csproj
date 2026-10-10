@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MirClient.Protocol\MirClient.Protocol.csproj" />
+    <ProjectReference Include="..\MirClient.Runner\MirClient.Runner.csproj" />
   </ItemGroup>
 
 </Project>

@@ -29,6 +29,7 @@ public static class AssetManager
     public static WilLoader WeaponLib { get; } = new(); // 角色武器原版图库 (Data/Weapon)
     public static WilLoader NpcLib { get; } = new();    // NPC原版图库 (Data/Npc)
     public static WilLoader Mon1Lib { get; } = new();   // 经典怪物原版图库 (Data/Mon1 或 Data/Mon)
+    public static WilLoader MagicLib { get; } = new();  // 原版技能法术光效图库 (Data/Magic)
 
     // GPU 纹理显存缓存池 (键为图库标识+帧序号)
     private static readonly ConcurrentDictionary<string, Texture2D> _textureCache = new();
@@ -86,6 +87,7 @@ public static class AssetManager
         HairLib.TryLoadAuto(Path.Combine(dataDir, "Hair"));
         WeaponLib.TryLoadAuto(Path.Combine(dataDir, "Weapon"));
         NpcLib.TryLoadAuto(Path.Combine(dataDir, "Npc"));
+        MagicLib.TryLoadAuto(Path.Combine(dataDir, "Magic"));
         if (!Mon1Lib.TryLoadAuto(Path.Combine(dataDir, "Mon1")))
         {
             Mon1Lib.TryLoadAuto(Path.Combine(dataDir, "Mon"));

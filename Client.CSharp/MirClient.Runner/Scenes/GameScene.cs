@@ -58,6 +58,9 @@ public class GameScene : IScene
     private record GroundItem(Item Item, Vector2 TilePos, float SpawnTime);
     private readonly List<GroundItem> _groundItems = new();
 
+    // 全屏技能法术与粒子光效系统
+    private readonly SkillEffectManager _skillFx = new();
+
     private static bool IsOneShotAction(HumanActionType action) => action switch
     {
         HumanActionType.Attack or HumanActionType.HeavyHit or HumanActionType.BigHit or 
@@ -112,6 +115,7 @@ public class GameScene : IScene
 
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
+        _chatLogs.Add("[系统] 技能法术: [1/F1] 雷电术；[2/F2] 烈火剑法；[3/F3] 治愈术；[4/F4] 火球术 (支持点击底板快捷槽施法)。");
         _chatLogs.Add("[系统] 快捷面板: [F9] 打开经典40格包裹；[F10] 打开角色装备与属性面板；[F11] 切换色彩模式。");
 
         // 写入资源诊断日志 client_diagnostic.log
@@ -191,14 +195,26 @@ public class GameScene : IScene
             Console.WriteLine($"[色彩切换] {modeDesc}");
         }
 
-        // 战斗交互与热键
+        // 战斗交互与热键 (1~4 与 F1~F4 技能法术)
         if (Raylib.IsKeyPressed(KeyboardKey.Space) || (Raylib.IsKeyDown(KeyboardKey.LeftShift) && Raylib.IsMouseButtonPressed(MouseButton.Left)))
         {
             TriggerAttack();
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.One) || Raylib.IsKeyPressed(KeyboardKey.F1))
         {
-            TriggerSpell();
+            CastSkill(SkillType.ThunderBolt);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Two) || Raylib.IsKeyPressed(KeyboardKey.F2))
+        {
+            CastSkill(SkillType.FireSword);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Three) || Raylib.IsKeyPressed(KeyboardKey.F3))
+        {
+            CastSkill(SkillType.Healing);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Four) || Raylib.IsKeyPressed(KeyboardKey.F4))
+        {
+            CastSkill(SkillType.Fireball);
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.H))
         {
@@ -331,7 +347,10 @@ public class GameScene : IScene
             }
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.F2))
+        // 推进全屏法术光效与粒子生命周期
+        _skillFx.Update(dt);
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             _engine.SwitchToLoginScene();
         }
@@ -614,6 +633,9 @@ public class GameScene : IScene
         {
             item.Draw();
         }
+
+        // 【Pass 5: 全屏技能法术发光光效层 (Additive Blending)】
+        _skillFx.DrawAll(screenCenter, _playerTilePos, TILE_WIDTH, TILE_HEIGHT);
     }
 
     private void TriggerAttack()
@@ -693,6 +715,141 @@ public class GameScene : IScene
         _currentAction = HumanActionType.Spell;
         _motionStep = 0;
         _actionTimer = 0f;
+    }
+
+    private void CastSkill(SkillType type)
+    {
+        var skill = Skill.GetSkill(type);
+        if (_mp < skill.RequiredMp)
+        {
+            _chatLogs.Add($"[技能] 魔法值不足！施展【{skill.Name}】需要 {skill.RequiredMp} 点 MP (当前: {(int)_mp})");
+            return;
+        }
+
+        _mp = Math.Clamp(_mp - skill.RequiredMp, 0, MAX_MP);
+        _targetTilePos = _playerTilePos;
+        _currentAction = (type == SkillType.FireSword) ? HumanActionType.Attack : HumanActionType.Spell;
+        _motionStep = 0;
+        _actionTimer = 0f;
+
+        Vector2 frontTile = MapEntity.GetFrontTile(_playerTilePos, _direction);
+
+        switch (type)
+        {
+            case SkillType.ThunderBolt:
+            {
+                MapEntity? target = FindNearestMonster(frontTile, 6f);
+                Vector2 strikePos = target != null ? target.TilePos : _playerTilePos + (_direction switch
+                {
+                    0 => new Vector2(0, -2),
+                    1 => new Vector2(2, -2),
+                    2 => new Vector2(2, 0),
+                    3 => new Vector2(2, 2),
+                    4 => new Vector2(0, 2),
+                    5 => new Vector2(-2, 2),
+                    6 => new Vector2(-2, 0),
+                    _ => new Vector2(-2, -2)
+                });
+
+                _skillFx.SpawnThunder(strikePos);
+                _chatLogs.Add($"[法术] 念动咒语，召唤九天神雷轰击【{strikePos.X:F0},{strikePos.Y:F0}】！");
+
+                if (target != null && Vector2.Distance(target.TilePos, strikePos) < 1.0f)
+                {
+                    int dmg = Random.Shared.Next(skill.MinPower, skill.MaxPower + 1);
+                    ApplyMonsterDamage(target, dmg, skill.Name);
+                }
+                break;
+            }
+
+            case SkillType.FireSword:
+            {
+                _skillFx.SpawnFireSword(frontTile, _direction);
+                _chatLogs.Add($"[武技] 挥出烈火剑法，极度炙热的烈焰剑气撕裂空气！");
+
+                MapEntity? target = null;
+                lock (_entities)
+                {
+                    target = _entities.FirstOrDefault(e => !e.IsDead && Vector2.Distance(e.TilePos, frontTile) < 1.1f);
+                }
+                if (target != null)
+                {
+                    int dmg = (int)(Random.Shared.Next(skill.MinPower, skill.MaxPower + 1) + (_inv.TotalMaxDc * 1.5f));
+                    ApplyMonsterDamage(target, dmg, skill.Name);
+                }
+                break;
+            }
+
+            case SkillType.Healing:
+            {
+                _skillFx.SpawnHealing(_playerTilePos);
+                int heal = 60;
+                _hp = Math.Clamp(_hp + heal, 0, MAX_HP);
+                _chatLogs.Add($"[道术] 施展神圣治愈术，圣洁辉光笼罩全身，生命值 +{heal}！(HP: {(int)_hp}/{(int)MAX_HP})");
+                break;
+            }
+
+            case SkillType.Fireball:
+            {
+                MapEntity? target = FindNearestMonster(frontTile, 6f);
+                Vector2 targetPos = target != null ? target.TilePos : _playerTilePos + (_direction switch
+                {
+                    0 => new Vector2(0, -3),
+                    1 => new Vector2(3, -3),
+                    2 => new Vector2(3, 0),
+                    3 => new Vector2(3, 3),
+                    4 => new Vector2(0, 3),
+                    5 => new Vector2(-3, 3),
+                    6 => new Vector2(-3, 0),
+                    _ => new Vector2(-3, -3)
+                });
+
+                _chatLogs.Add($"[法术] 凝聚炙热大火球射向目标！");
+                _skillFx.SpawnFireball(_playerTilePos, targetPos, () =>
+                {
+                    if (target != null && !target.IsDead && Vector2.Distance(target.TilePos, targetPos) < 1.2f)
+                    {
+                        int dmg = Random.Shared.Next(skill.MinPower, skill.MaxPower + 1);
+                        ApplyMonsterDamage(target, dmg, skill.Name);
+                    }
+                });
+                break;
+            }
+        }
+    }
+
+    private MapEntity? FindNearestMonster(Vector2 nearPos, float maxDist)
+    {
+        lock (_entities)
+        {
+            return _entities
+                .Where(e => !e.IsDead && e.Type == EntityType.Monster && Vector2.Distance(e.TilePos, nearPos) <= maxDist)
+                .OrderBy(e => Vector2.Distance(e.TilePos, nearPos))
+                .FirstOrDefault();
+        }
+    }
+
+    private void ApplyMonsterDamage(MapEntity target, int damage, string skillName)
+    {
+        target.TakeDamage(damage);
+        _chatLogs.Add($"[战斗] 【{skillName}】重创【{target.Name}】造成 {damage} 点伤害！剩余生命: {target.Hp}/{target.MaxHp}");
+        if (target.IsDead)
+        {
+            _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +150");
+
+            Item drop = Random.Shared.Next(4) switch
+            {
+                0 => Item.CreateEbonySword(),
+                1 => Item.CreateHeavyArmor(),
+                2 => Item.CreateJudgmentMace(),
+                _ => Item.CreateRedPotion(3)
+            };
+            lock (_groundItems)
+            {
+                _groundItems.Add(new GroundItem(drop, target.TilePos, (float)Raylib.GetTime()));
+            }
+            _chatLogs.Add($"[掉落] 地面出现战利品【{drop.Name}】！走近即可拾取。");
+        }
     }
 
     private void TriggerStruck()
@@ -939,18 +1096,36 @@ public class GameScene : IScene
         int slotSpacing = 3;
         int slotsStartX = boardX + 502;
         int slotsY = boardY + 12;
-        string[] skillNames = { "烈火", "刺杀", "逐日", "野蛮", "半月", "攻杀", "开天", "随机" };
+        string[] skillNames = { "雷电", "烈火", "治愈", "火球", "半月", "刺杀", "逐日", "随机" };
+        SkillType?[] slotSkills = { SkillType.ThunderBolt, SkillType.FireSword, SkillType.Healing, SkillType.Fireball, null, null, null, null };
+
+        Vector2 mousePos = Raylib.GetMousePosition();
 
         for (int i = 0; i < 8; i++)
         {
             int slotX = slotsStartX + i * (slotSize + slotSpacing);
             Rectangle slotRect = new(slotX, slotsY, slotSize, slotSize);
-            Raylib.DrawRectangleRec(slotRect, new Color(22, 18, 14, 210));
-            Raylib.DrawRectangleLinesEx(slotRect, 1, new Color(110, 90, 45, 220));
+            bool isHover = Raylib.CheckCollisionPointRec(mousePos, slotRect);
 
-            FontManager.DrawText($"F{i + 1}", slotX + 2, slotsY + 2, 10, Color.Orange);
+            Raylib.DrawRectangleRec(slotRect, isHover ? new Color(45, 38, 28, 240) : new Color(22, 18, 14, 210));
+            Raylib.DrawRectangleLinesEx(slotRect, 1, isHover ? Color.Gold : new Color(110, 90, 45, 220));
+
+            FontManager.DrawText($"F{i + 1}", slotX + 2, slotsY + 2, 10, isHover ? Color.Yellow : Color.Orange);
             int skillW = FontManager.MeasureText(skillNames[i], 11);
-            FontManager.DrawText(skillNames[i], slotX + (slotSize - skillW) / 2, slotsY + 15, 11, Color.Yellow);
+            FontManager.DrawText(skillNames[i], slotX + (slotSize - skillW) / 2, slotsY + 15, 11, isHover ? Color.White : Color.Yellow);
+
+            // 支持鼠标左键点击快捷栏施法
+            if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                if (slotSkills[i].HasValue)
+                {
+                    CastSkill(slotSkills[i]!.Value);
+                }
+                else
+                {
+                    _chatLogs.Add($"[技能] 快捷槽 F{i + 1} 暂未装配技能。");
+                }
+            }
         }
 
         // 2. 底板右下角原生雕花红宝石大圆钮交互（移除突兀的纯黑矩形，100% 依托原生贴图浮雕）
@@ -963,7 +1138,6 @@ public class GameScene : IScene
             ("退出", boardX + 814, boardY + 115, () => _engine.SwitchToLoginScene())
         };
 
-        Vector2 mousePos = Raylib.GetMousePosition();
         int btnRadius = 14;
 
         foreach (var btn in nativeButtons)
