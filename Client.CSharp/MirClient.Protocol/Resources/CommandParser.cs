@@ -12,6 +12,7 @@ public enum ParsedCommandType
     Full,       // @full 满血满魔
     Level,      // @level 等级
     Exp,        // @exp 经验值
+    Cooldown,   // @cd 清空技能冷却
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -237,6 +238,18 @@ public static class CommandParser
                 };
             }
 
+            case "cd":
+            case "冷却":
+            case "重置冷却":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Cooldown,
+                    RawInput = input,
+                    Message = "所有技能冷却已彻底清空重置，即刻就绪！"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -253,7 +266,8 @@ public static class CommandParser
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
                               "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
-                              "  @full                 - 满血满魔\n" +
+                              "  @cd                   - 一键清空所有技能冷却\n" +
+                              "  @full                 - 满血满魔满状态\n" +
                               "  直接输入普通文本可进行公屏聊天发言！"
                 };
             }

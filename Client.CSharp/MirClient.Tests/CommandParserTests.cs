@@ -88,6 +88,14 @@ public class CommandParserTests
     }
 
     [Fact]
+    public void TestParse_CooldownCommand()
+    {
+        var cmd = CommandParser.Parse("@cd");
+        Assert.Equal(ParsedCommandType.Cooldown, cmd.Type);
+        Assert.Contains("清空重置", cmd.Message);
+    }
+
+    [Fact]
     public void TestParse_ChatAndHelp()
     {
         // 普通公屏消息

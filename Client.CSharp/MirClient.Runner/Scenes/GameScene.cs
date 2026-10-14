@@ -60,6 +60,9 @@ public class GameScene : IScene
     // 全屏技能法术与粒子光效系统
     private readonly SkillEffectManager _skillFx = new();
 
+    // 技能快捷键与独立/公共冷却系统
+    private readonly SkillCooldownManager _skillCd = new();
+
     // 右上角雷达小地图显隐 (TAB 键切换)
     private bool _showMiniMap = true;
 
@@ -452,8 +455,9 @@ public class GameScene : IScene
             }
         }
 
-        // 推进全屏法术光效与粒子生命周期
+        // 推进全屏法术光效与技能冷却倒计时
         _skillFx.Update(dt);
+        _skillCd.Update(dt);
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
@@ -909,12 +913,23 @@ public class GameScene : IScene
     private void CastSkill(SkillType type)
     {
         var skill = Skill.GetSkill(type);
+
+        // 1. 冷却校验 (独立技能冷却与公共后摇 GCD)
+        if (!_skillCd.CanCast(type, out float remainTime))
+        {
+            _chatLogs.Add($"[技能] 【{skill.Name}】冷却中，还需 {remainTime:F1} 秒！");
+            return;
+        }
+
+        // 2. 魔法值 (MP) 校验
         if (_mp < skill.RequiredMp)
         {
             _chatLogs.Add($"[技能] 魔法值不足！施展【{skill.Name}】需要 {skill.RequiredMp} 点 MP (当前: {(int)_mp})");
             return;
         }
 
+        // 3. 触发冷却并扣除 MP
+        _skillCd.TriggerCooldown(type);
         _mp = Math.Clamp(_mp - skill.RequiredMp, 0, MAX_MP);
         _targetTilePos = _playerTilePos;
         _currentAction = (type == SkillType.FireSword) ? HumanActionType.Attack : HumanActionType.Spell;
@@ -1378,6 +1393,26 @@ public class GameScene : IScene
             int skillW = FontManager.MeasureText(skillNames[i], 11);
             FontManager.DrawText(skillNames[i], slotX + (slotSize - skillW) / 2, slotsY + 15, 11, isHover ? Color.White : Color.Yellow);
 
+            // 顺时针半透明阴影转圈遮罩与倒计时跳字
+            if (slotSkills[i].HasValue)
+            {
+                var sType = slotSkills[i]!.Value;
+                float progress = _skillCd.GetCooldownProgress(sType);
+                float remain = _skillCd.GetRemainTime(sType);
+
+                if (progress > 0f)
+                {
+                    Vector2 slotCenter = new(slotX + slotSize / 2f, slotsY + slotSize / 2f);
+                    float startAngle = -90f;
+                    float sweepAngle = 360f * progress;
+                    Raylib.DrawCircleSector(slotCenter, slotSize * 0.72f, startAngle, startAngle + sweepAngle, 16, new Color(0, 0, 0, 190));
+
+                    string cdStr = remain >= 1.0f ? $"{remain:F0}s" : $"{remain:F1}s";
+                    int cdW = FontManager.MeasureText(cdStr, 11);
+                    FontManager.DrawTextWithShadow(cdStr, slotX + (slotSize - cdW) / 2, slotsY + 14, 11, Color.Yellow, Color.Black);
+                }
+            }
+
             // 支持鼠标左键点击快捷栏施法
             if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
             {
@@ -1591,7 +1626,13 @@ public class GameScene : IScene
             case ParsedCommandType.Full:
                 _hp = MaxHp;
                 _mp = MaxMp;
-                _chatLogs.Add($"[GM] 状态全满！生命值与魔法值已彻底恢复 (HP: {(int)MaxHp}/{(int)MaxHp}, MP: {(int)MaxMp}/{(int)MaxMp})。");
+                _skillCd.ResetAll();
+                _chatLogs.Add($"[GM] 状态全满！生命魔法与技能冷却已彻底恢复 (HP: {(int)MaxHp}/{(int)MaxHp}, MP: {(int)MaxMp}/{(int)MaxMp})。");
+                break;
+
+            case ParsedCommandType.Cooldown:
+                _skillCd.ResetAll();
+                _chatLogs.Add("[GM] 所有技能冷却已彻底清空重置，即刻就绪！");
                 break;
 
             case ParsedCommandType.Level:
