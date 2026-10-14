@@ -93,6 +93,10 @@ public class GameScene : IScene
     private NpcProfile? _activeNpcProfile = null;
     private NpcDialogMode _npcDialogMode = NpcDialogMode.Dialog;
 
+    // 怪物自主巡逻与仇恨反击 AI 控制器
+    private readonly Dictionary<int, MonsterAiController> _monsterAis = new();
+    private readonly Dictionary<int, double> _monsterDeathTimes = new();
+
     // 聊天消息队列
     private readonly List<string> _chatLogs = new();
 
@@ -167,18 +171,40 @@ public class GameScene : IScene
             }
         }
 
-        // 初始化场景实体 (比奇老兵 NPC 与野外怪物)
+        // 初始化场景实体 (比奇老兵/铁匠/药铺 NPC 与野外怪物)
         lock (_entities)
         {
             _entities.Clear();
+            _monsterAis.Clear();
+            _monsterDeathTimes.Clear();
+
             if (!_engine.NetworkSession.IsConnected)
             {
+                // 城镇关键功能 NPC
                 _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
-                _entities.Add(new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(332, 268), appr: 0, maxHp: 80));
-                _entities.Add(new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(328, 267), appr: 1, maxHp: 100));
-                _entities.Add(new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 266), appr: 2, maxHp: 150));
-                _entities.Add(new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(329, 270), appr: 3, maxHp: 120));
-                _chatLogs.Add("[世界] [离线沙盒] 比奇省老兵已就位，城外刷新野怪【稻草人】、【钉耙猫】、【半兽人】！");
+                _entities.Add(new MapEntity(1002, "比奇城铁匠", EntityType.Npc, new Vector2(331, 269), appr: 0, maxHp: 1000));
+                _entities.Add(new MapEntity(1003, "回春堂药铺老板", EntityType.Npc, new Vector2(329, 267), appr: 0, maxHp: 1000));
+
+                // 野外经典怪物 (具备自主巡逻与仇恨反击 AI)
+                var scarecrow = new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(333, 268), appr: 0, maxHp: 80);
+                var cat = new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(326, 267), appr: 1, maxHp: 100);
+                var orc = new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 264), appr: 2, maxHp: 150);
+                var yeti = new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(327, 270), appr: 3, maxHp: 120);
+                var whitePig = new MapEntity(2005, "白野猪", EntityType.Monster, new Vector2(335, 271), appr: 4, maxHp: 500);
+
+                _entities.Add(scarecrow);
+                _entities.Add(cat);
+                _entities.Add(orc);
+                _entities.Add(yeti);
+                _entities.Add(whitePig);
+
+                _monsterAis[scarecrow.RecogId] = new MonsterAiController(scarecrow);
+                _monsterAis[cat.RecogId] = new MonsterAiController(cat);
+                _monsterAis[orc.RecogId] = new MonsterAiController(orc);
+                _monsterAis[yeti.RecogId] = new MonsterAiController(yeti);
+                _monsterAis[whitePig.RecogId] = new MonsterAiController(whitePig);
+
+                _chatLogs.Add("[世界] [离线沙盒] 比奇老兵、铁匠、药铺已就位；城外刷新【稻草人】、【钉耙猫】、【白野猪】！");
             }
             else
             {
@@ -342,6 +368,53 @@ public class GameScene : IScene
             foreach (var entity in _entities)
             {
                 entity.UpdateAnimation(dt);
+            }
+        }
+
+        // 推进野外怪物的自主巡逻与仇恨反击 AI
+        double nowTime = Raylib.GetTime();
+        lock (_entities)
+        {
+            foreach (var entity in _entities)
+            {
+                if (entity.Type != EntityType.Monster) continue;
+
+                if (!_monsterAis.TryGetValue(entity.RecogId, out var ai))
+                {
+                    ai = new MonsterAiController(entity);
+                    _monsterAis[entity.RecogId] = ai;
+                }
+
+                // 若怪物已阵亡，记录死亡时间，满 15 秒在出生点复活刷新
+                if (entity.IsDead)
+                {
+                    if (!_monsterDeathTimes.ContainsKey(entity.RecogId))
+                    {
+                        _monsterDeathTimes[entity.RecogId] = nowTime;
+                    }
+                    else if (nowTime - _monsterDeathTimes[entity.RecogId] > 15.0)
+                    {
+                        _monsterDeathTimes.Remove(entity.RecogId);
+                        ai.Respawn();
+                        _chatLogs.Add($"[世界] 【{entity.Name}】在荒野中重新刷新凝聚！");
+                    }
+                    continue;
+                }
+
+                // 玩家存活时驱动 AI 决策并检测反击
+                if (_hp > 0 && ai.Update(dt, _playerTilePos, IsCellBlocked, out int dmg))
+                {
+                    _hp = Math.Max(0, _hp - dmg);
+                    TriggerStruck();
+                    _chatLogs.Add($"[受到攻击] 【{entity.Name}】发动反击，对您造成 {dmg} 点物理伤害！(当前生命: {(int)_hp}/{(int)MAX_HP})");
+
+                    if (_hp <= 0)
+                    {
+                        _currentAction = HumanActionType.Die;
+                        _motionStep = 0;
+                        _chatLogs.Add($"[阵亡] 您被【{entity.Name}】击倒在地！点击屏幕中央【安全区满血复活】重返玛法。");
+                    }
+                }
             }
         }
 
@@ -548,6 +621,12 @@ public class GameScene : IScene
         {
             RenderNpcDialogWindow(screenW, screenH);
         }
+
+        // 7. 玩家阵亡界面 (黑白暗红覆屏与安全区复活按钮)
+        if (_hp <= 0)
+        {
+            RenderDeathScreen(screenW, screenH);
+        }
     }
 
     private void RenderMapViewport(int viewportW, int viewportH)
@@ -746,6 +825,10 @@ public class GameScene : IScene
             {
                 int damage = Random.Shared.Next(18, 32); // 挥砍基础物理伤害
                 target.TakeDamage(damage);
+                if (_monsterAis.TryGetValue(target.RecogId, out var ai))
+                {
+                    ai.OnDamaged(damage);
+                }
                 _chatLogs.Add($"[战斗] 挥砍命中【{target.Name}】造成 {damage} 点伤害！目标生命: {target.Hp}/{target.MaxHp}");
                 if (target.IsDead)
                 {
@@ -896,6 +979,10 @@ public class GameScene : IScene
     private void ApplyMonsterDamage(MapEntity target, int damage, string skillName)
     {
         target.TakeDamage(damage);
+        if (_monsterAis.TryGetValue(target.RecogId, out var ai))
+        {
+            ai.OnDamaged(damage);
+        }
         _chatLogs.Add($"[战斗] 【{skillName}】重创【{target.Name}】造成 {damage} 点伤害！剩余生命: {target.Hp}/{target.MaxHp}");
         if (target.IsDead)
         {
@@ -1985,5 +2072,51 @@ public class GameScene : IScene
                 _activeNpcProfile = null;
                 break;
         }
+    }
+
+    private void RenderDeathScreen(int screenW, int screenH)
+    {
+        // 1. 全屏半透明猩红暗夜滤镜 (还原传奇经典死亡体验)
+        Raylib.DrawRectangle(0, 0, screenW, screenH, new Color(40, 10, 10, 190));
+
+        int centerX = screenW / 2;
+        int centerY = screenH / 2 - 30;
+
+        // 2. 居中显目阵亡提示
+        string deathTitle = "【 您 已 战 败 阵 亡 】";
+        int titleW = FontManager.MeasureText(deathTitle, 22);
+        FontManager.DrawTextWithShadow(deathTitle, centerX - titleW / 2, centerY - 40, 22, Color.Red, Color.Black);
+
+        string hint = "胜败乃兵家常事，少侠请回安全区重整旗鼓再战玛法！";
+        int hintW = FontManager.MeasureText(hint, 13);
+        FontManager.DrawTextWithShadow(hint, centerX - hintW / 2, centerY, 13, Color.LightGray, Color.Black);
+
+        // 3. 【安全区复活】按钮
+        Rectangle reviveBtn = new(centerX - 80, centerY + 36, 160, 36);
+        Vector2 mousePos = Raylib.GetMousePosition();
+        bool isHover = Raylib.CheckCollisionPointRec(mousePos, reviveBtn);
+
+        Raylib.DrawRectangleRec(reviveBtn, isHover ? new Color(160, 30, 30, 255) : new Color(90, 20, 20, 240));
+        Raylib.DrawRectangleLinesEx(reviveBtn, 2, isHover ? Color.Gold : Color.Red);
+
+        string btnText = "安全区满血复活";
+        int btnW = FontManager.MeasureText(btnText, 14);
+        FontManager.DrawTextWithShadow(btnText, centerX - btnW / 2, centerY + 46, 14, isHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            ReviveAtSafeZone();
+        }
+    }
+
+    private void ReviveAtSafeZone()
+    {
+        _playerTilePos = new Vector2(330, 268); // 比奇城安全区中心
+        _targetTilePos = _playerTilePos;
+        _hp = MAX_HP;
+        _mp = MAX_MP;
+        _currentAction = HumanActionType.Stand;
+        _motionStep = 0;
+        _chatLogs.Add("[复活] 祈祷神光自虚空降临，您已在【比奇城安全区】满血复活！");
     }
 }
