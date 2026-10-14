@@ -26,7 +26,7 @@ cd "$EXPORT_DIR"
 git init
 git branch -M main
 git add .
-git commit -m "feat: implement classic audio sound engine with 13 sound effects and 73 passing tests"
+git commit -m "feat: implement multi-map transition and gateway system with 79 passing tests"
 git remote add origin "$TARGET_REPO"
 
 echo "[4/4] 推送到远程仓库: $TARGET_REPO ..."
