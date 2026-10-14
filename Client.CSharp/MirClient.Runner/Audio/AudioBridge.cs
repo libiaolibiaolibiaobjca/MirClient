@@ -98,6 +98,8 @@ public static class AudioBridge
             RegisterSyntheticWave(SoundEffectType.UsePotion, 380f, 0.15f);
             // 升级号角: 880Hz 激昂和弦
             RegisterSyntheticWave(SoundEffectType.LevelUp, 880f, 0.6f, isChirp: true);
+            // 空间传送: 300Hz -> 900Hz 快速升频能量波
+            RegisterSyntheticWave(SoundEffectType.Teleport, 300f, 0.25f, isChirp: true);
             // 按钮点击
             RegisterSyntheticWave(SoundEffectType.ButtonClick, 600f, 0.04f);
         }

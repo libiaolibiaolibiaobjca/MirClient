@@ -77,8 +77,10 @@ public class NpcProfile
         Greeting = "年轻人，你身上有当年沙城勇士的锐气！玛法大陆辽阔无垠，老夫可为你指引前往各省的捷径。",
         Options = new()
         {
+            new("[传送: 兽人古墓一层 (180, 200)]", "@tele_tomb"),
             new("[传送: 盟重省土城 (330, 330)]", "@tele_mengzhong"),
-            new("[传送: 毒蛇山谷隘口 (150, 150)]", "@tele_snake"),
+            new("[传送: 毒蛇山谷隘口 (280, 180)]", "@tele_snake"),
+            new("[传送: 比奇王城安全区 (330, 268)]", "@tele_biqi"),
             new("[打听: 沙巴克攻城秘史]", "@legend"),
             new("[离开]", "@close")
         },

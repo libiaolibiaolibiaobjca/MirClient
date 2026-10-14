@@ -16,6 +16,7 @@ public enum ParsedCommandType
     Mute,       // @mute 开关静音
     Sound,      // @sound 音量(0~100)
     Play,       // @play 试听音效
+    Map,        // @map 地图名/ID [X] [Y]
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -337,6 +338,37 @@ public static class CommandParser
                 };
             }
 
+            case "map":
+            case "地图":
+            case "切图":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @map <地图名/ID> [X] [Y] (例如: @map 兽人古墓, @map 3, @map 0 330 268)"
+                    };
+                }
+
+                string mapTarget = parts[1];
+                Vector2 targetTile = Vector2.Zero;
+                if (parts.Length >= 4 && float.TryParse(parts[2], out float x) && float.TryParse(parts[3], out float y))
+                {
+                    targetTile = new Vector2(x, y);
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Map,
+                    RawInput = input,
+                    TargetName = mapTarget,
+                    TargetTile = targetTile,
+                    Message = $"传送前往地图【{mapTarget}】" + (targetTile != Vector2.Zero ? $" 坐标: ({targetTile.X:F0}, {targetTile.Y:F0})" : "")
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -351,6 +383,7 @@ public static class CommandParser
                               "  @gold <数值>          - 充值随身金币 (如 @gold 100000)\n" +
                               "  @mob <怪物名>         - 眼前刷怪 (如 @mob 白野猪)\n" +
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
+                              "  @map <地图名/ID> [X Y]- 跨地图自由穿梭 (如 @map 兽人古墓, @map 3)\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
                               "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
                               "  @cd                   - 一键清空所有技能冷却\n" +

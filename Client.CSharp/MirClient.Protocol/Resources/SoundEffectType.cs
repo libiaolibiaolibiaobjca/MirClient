@@ -17,5 +17,6 @@ public enum SoundEffectType
     PickupItem = 10,   // 拾取装备物品咔哒声
     UsePotion = 11,    // 喝药水咕嘟声
     LevelUp = 12,      // 突破境界升级号角
-    ButtonClick = 13   // 界面圆钮点击声
+    ButtonClick = 13,  // 界面圆钮点击声
+    Teleport = 14      // 空间传送门穿梭声
 }

@@ -107,6 +107,12 @@ public class GameScene : IScene
     private bool _isChatInputActive = false;
     private string _chatInputBuffer = "";
 
+    // 切图转场淡入淡出与地图品名浮现
+    private float _transitionAlpha = 0f;
+    private string _mapBannerText = "";
+    private float _mapBannerTimer = 0f;
+    private double _lastTransitionTime = 0.0;
+
     public GameScene(GameEngine engine, ClientConfig config)
     {
         _engine = engine;
@@ -161,8 +167,9 @@ public class GameScene : IScene
         }
         catch { }
 
-        // 加载比奇城 0.map
-        string mapPath = Path.Combine(AssetManager.ClientRootPath, "Map", "0.map");
+        // 初始化地图管理器与当前活动地图 (默认为比奇省 0.map)
+        MapManager.Instance.Reset();
+        string mapPath = Path.Combine(AssetManager.ClientRootPath, "Map", MapManager.Instance.ActiveMap.FileName);
         if (File.Exists(mapPath))
         {
             try
@@ -178,46 +185,8 @@ public class GameScene : IScene
             }
         }
 
-        // 初始化场景实体 (比奇老兵/铁匠/药铺 NPC 与野外怪物)
-        lock (_entities)
-        {
-            _entities.Clear();
-            _monsterAis.Clear();
-            _monsterDeathTimes.Clear();
-
-            if (!_engine.NetworkSession.IsConnected)
-            {
-                // 城镇关键功能 NPC
-                _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
-                _entities.Add(new MapEntity(1002, "比奇城铁匠", EntityType.Npc, new Vector2(331, 269), appr: 0, maxHp: 1000));
-                _entities.Add(new MapEntity(1003, "回春堂药铺老板", EntityType.Npc, new Vector2(329, 267), appr: 0, maxHp: 1000));
-
-                // 野外经典怪物 (具备自主巡逻与仇恨反击 AI)
-                var scarecrow = new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(333, 268), appr: 0, maxHp: 80);
-                var cat = new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(326, 267), appr: 1, maxHp: 100);
-                var orc = new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 264), appr: 2, maxHp: 150);
-                var yeti = new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(327, 270), appr: 3, maxHp: 120);
-                var whitePig = new MapEntity(2005, "白野猪", EntityType.Monster, new Vector2(335, 271), appr: 4, maxHp: 500);
-
-                _entities.Add(scarecrow);
-                _entities.Add(cat);
-                _entities.Add(orc);
-                _entities.Add(yeti);
-                _entities.Add(whitePig);
-
-                _monsterAis[scarecrow.RecogId] = new MonsterAiController(scarecrow);
-                _monsterAis[cat.RecogId] = new MonsterAiController(cat);
-                _monsterAis[orc.RecogId] = new MonsterAiController(orc);
-                _monsterAis[yeti.RecogId] = new MonsterAiController(yeti);
-                _monsterAis[whitePig.RecogId] = new MonsterAiController(whitePig);
-
-                _chatLogs.Add("[世界] [离线沙盒] 比奇老兵、铁匠、药铺已就位；城外刷新【稻草人】、【钉耙猫】、【白野猪】！");
-            }
-            else
-            {
-                _chatLogs.Add("[世界] [联机在线] 已接入 7200 游戏网关，正在监听并渲染服务端动态世界实体...");
-            }
-        }
+        // 初始化当前地图场景实体生态 (NPC 与野外怪物)
+        SpawnMapEcology(MapManager.Instance.ActiveMapId);
     }
 
     public void Update(float dt)
@@ -467,6 +436,25 @@ public class GameScene : IScene
         _skillFx.Update(dt);
         _skillCd.Update(dt);
 
+        // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
+        if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
+        {
+            if (hitGw != null)
+            {
+                ExecuteMapTransition(hitGw.TargetMapId, hitGw.TargetTile, $"踏入【{hitGw.DisplayName}】");
+            }
+        }
+
+        // 切图淡入淡出遮罩与地图品名横幅计时衰减
+        if (_transitionAlpha > 0f)
+        {
+            _transitionAlpha = MathF.Max(0f, _transitionAlpha - dt * 2.5f);
+        }
+        if (_mapBannerTimer > 0f)
+        {
+            _mapBannerTimer = MathF.Max(0f, _mapBannerTimer - dt);
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             if (_activeNpc != null)
@@ -652,6 +640,23 @@ public class GameScene : IScene
         {
             RenderDeathScreen(screenW, screenH);
         }
+
+        // 8. 屏幕中央上方浮现当前地图品名金色大标
+        if (_mapBannerTimer > 0f && !string.IsNullOrEmpty(_mapBannerText))
+        {
+            int bannerW = FontManager.MeasureText(_mapBannerText, 18);
+            int bx = (screenW - bannerW) / 2;
+            int by = 50;
+            Raylib.DrawRectangle(bx - 16, by - 6, bannerW + 32, 32, new Color(15, 12, 10, 220));
+            Raylib.DrawRectangleLines(bx - 16, by - 6, bannerW + 32, 32, Color.Gold);
+            FontManager.DrawTextWithShadow(_mapBannerText, bx, by, 18, Color.Gold, Color.Black);
+        }
+
+        // 9. 场景切图全屏黑屏淡入淡出转场遮罩
+        if (_transitionAlpha > 0.01f)
+        {
+            Raylib.DrawRectangle(0, 0, screenW, screenH, new Color(0, 0, 0, (int)(255 * _transitionAlpha)));
+        }
     }
 
     private void RenderMapViewport(int viewportW, int viewportH)
@@ -815,6 +820,29 @@ public class GameScene : IScene
                 _targetTilePos = hoveredItem.TilePos;
                 _chatLogs.Add($"[寻路] 前往拾取【{hoveredItem.DisplayName}】...");
             }
+        }
+
+        // 【Pass 4.5: 地表空间传送门光圈与品名浮雕】
+        var gateways = MapManager.Instance.GetGateways(MapManager.Instance.ActiveMapId);
+        float timeNow = (float)Raylib.GetTime();
+        foreach (var gw in gateways)
+        {
+            Vector2 rel = gw.SourceTile - _playerTilePos;
+            Vector2 gatePx = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            if (gatePx.X < -80 || gatePx.X > viewportW + 80 || gatePx.Y < -80 || gatePx.Y > viewportH + 80)
+                continue;
+
+            float pulse = 0.7f + 0.3f * MathF.Sin(timeNow * 4f);
+            Raylib.DrawCircleLines((int)gatePx.X, (int)gatePx.Y, (int)(22 * pulse), new Color(180, 80, 255, 200));
+            Raylib.DrawCircleLines((int)gatePx.X, (int)gatePx.Y, (int)(14 * pulse), new Color(255, 215, 0, 180));
+            Raylib.DrawCircle((int)gatePx.X, (int)gatePx.Y, 5, new Color(220, 130, 255, 220));
+
+            string gwLabel = $"★ {gw.DisplayName} ★";
+            int gwTextW = Raylib.MeasureText(gwLabel, 11);
+            Rectangle gwRect = new(gatePx.X - gwTextW / 2f - 4, gatePx.Y - 26, gwTextW + 8, 14);
+            Raylib.DrawRectangleRec(gwRect, new Color(20, 10, 30, 190));
+            Raylib.DrawRectangleLinesEx(gwRect, 1, new Color(200, 100, 255, 200));
+            FontManager.DrawTextWithShadow(gwLabel, (int)(gatePx.X - gwTextW / 2f), (int)gatePx.Y - 25, 11, new Color(230, 180, 255, 255), Color.Black);
         }
 
         // 2.5D 视口实体深度排序 (Y-Sorting): 脚底 Y 越小越先画，近景遮挡远景
@@ -1698,6 +1726,10 @@ public class GameScene : IScene
                 }
                 break;
 
+            case ParsedCommandType.Map:
+                ExecuteMapTransition(cmd.TargetName, cmd.TargetTile != Vector2.Zero ? cmd.TargetTile : null, "GM时空穿梭指令");
+                break;
+
             case ParsedCommandType.Help:
             case ParsedCommandType.Unknown:
                 foreach (var line in cmd.Message.Split('\n'))
@@ -1736,7 +1768,7 @@ public class GameScene : IScene
         Raylib.DrawRectangleLinesEx(fullRect, 1, Color.Gold);
 
         // 2. 标题栏与实时坐标：例如 "[比奇省] 330, 268"
-        string mapTitle = $"[比奇省] {(int)_playerTilePos.X}, {(int)_playerTilePos.Y}";
+        string mapTitle = $"[{MapManager.Instance.ActiveMap.Name}] {(int)_playerTilePos.X}, {(int)_playerTilePos.Y}";
         FontManager.DrawTextWithShadow(mapTitle, mapX + 8, mapY + 5, 11, Color.Lime, Color.Black);
 
         // 折叠按键提示
@@ -2433,19 +2465,17 @@ public class GameScene : IScene
             case "@repair":
                 _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“少侠的神兵完好如初，无需特修！”");
                 break;
+            case "@tele_tomb":
+                ExecuteMapTransition("D021", new Vector2(180, 200), "老兵空间秘法传送");
+                break;
             case "@tele_mengzhong":
-                _playerTilePos = new Vector2(330, 330);
-                _targetTilePos = _playerTilePos;
-                _activeNpc = null;
-                _activeNpcProfile = null;
-                _chatLogs.Add("[空间法阵] 空间波动涌现，您已被传送至【盟重省土城 (330, 330)】！");
+                ExecuteMapTransition("3", new Vector2(330, 330), "老兵空间秘法传送");
                 break;
             case "@tele_snake":
-                _playerTilePos = new Vector2(150, 150);
-                _targetTilePos = _playerTilePos;
-                _activeNpc = null;
-                _activeNpcProfile = null;
-                _chatLogs.Add("[空间法阵] 穿过比奇关隘，您已抵达【毒蛇山谷隘口 (150, 150)】！");
+                ExecuteMapTransition("2", new Vector2(280, 180), "老兵空间秘法传送");
+                break;
+            case "@tele_biqi":
+                ExecuteMapTransition("0", new Vector2(330, 268), "老兵空间秘法传送");
                 break;
             case "@legend":
                 _chatLogs.Add("[传说] 比奇老兵：“相传唯有攻陷沙巴克皇宫并立于城主雕像之巅的行会霸主，方能号令玛法！”");
@@ -2455,6 +2485,172 @@ public class GameScene : IScene
                 _activeNpc = null;
                 _activeNpcProfile = null;
                 break;
+        }
+    }
+
+    private void ExecuteMapTransition(string targetMapIdOrName, Vector2? targetTile = null, string transitionReason = "")
+    {
+        double now = Raylib.GetTime();
+        if (now - _lastTransitionTime < 1.2) return; // 1.2 秒传送防抖
+        _lastTransitionTime = now;
+
+        if (!MapManager.Instance.SwitchMap(targetMapIdOrName, targetTile, out var spawnTile, out var err))
+        {
+            _chatLogs.Add($"[传送失败] {err}");
+            return;
+        }
+
+        var map = MapManager.Instance.ActiveMap;
+
+        // 1. 尝试动态加载物理地图文件 (.map)
+        string mapFilePath = Path.Combine(AssetManager.ClientRootPath, "Map", map.FileName);
+        if (File.Exists(mapFilePath))
+        {
+            try
+            {
+                _mapLoader.Load(mapFilePath);
+                _mapLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[地图装载异常] {ex.Message}");
+            }
+        }
+
+        // 2. 玩家与摄像机定位到新坐标
+        _playerTilePos = spawnTile;
+        _targetTilePos = spawnTile;
+        _cameraPixelPos = spawnTile * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+        _isRunning = false;
+        _currentAction = HumanActionType.Stand;
+        _motionStep = 0;
+
+        // 3. 清理上一张地图地表残留战利品
+        _groundItemManager.Clear();
+
+        // 4. 重构并刷新当前地图的特有生态 (NPC 与野外怪物)
+        SpawnMapEcology(map.Id);
+
+        // 5. 视听觉反馈
+        SoundManager.Instance.Play(SoundEffectType.Teleport);
+        _transitionAlpha = 1.0f;
+        _mapBannerText = $"【 {map.Name} 】";
+        _mapBannerTimer = 2.5f;
+
+        string reasonMsg = string.IsNullOrWhiteSpace(transitionReason) ? "穿梭空间之门" : transitionReason;
+        _chatLogs.Add($"[传送] {reasonMsg}，成功抵达【{map.Name}】(坐标: {(int)spawnTile.X}, {(int)spawnTile.Y})！环境: {map.Ambience}");
+
+        if (_activeNpc != null)
+        {
+            _activeNpc = null;
+            _activeNpcProfile = null;
+        }
+    }
+
+    private void SpawnMapEcology(string mapId)
+    {
+        lock (_entities)
+        {
+            _entities.Clear();
+            _monsterAis.Clear();
+            _monsterDeathTimes.Clear();
+
+            if (_engine.NetworkSession.IsConnected) return;
+
+            switch (mapId.ToUpperInvariant())
+            {
+                case "D021": // 兽人古墓 (骷髅洞)
+                {
+                    _entities.Add(new MapEntity(1101, "古墓引路人", EntityType.Npc, new Vector2(182, 202), appr: 0, maxHp: 1000));
+
+                    var skel1 = new MapEntity(2101, "骷髅战士", EntityType.Monster, new Vector2(185, 204), appr: 5, maxHp: 160);
+                    var skel2 = new MapEntity(2102, "骷髅战将", EntityType.Monster, new Vector2(176, 195), appr: 5, maxHp: 220);
+                    var skelElf = new MapEntity(2103, "骷髅精灵", EntityType.Monster, new Vector2(188, 208), appr: 6, maxHp: 450);
+                    var corpseKing = new MapEntity(2104, "尸王", EntityType.Monster, new Vector2(172, 205), appr: 7, maxHp: 800);
+
+                    _entities.Add(skel1);
+                    _entities.Add(skel2);
+                    _entities.Add(skelElf);
+                    _entities.Add(corpseKing);
+
+                    _monsterAis[skel1.RecogId] = new MonsterAiController(skel1);
+                    _monsterAis[skel2.RecogId] = new MonsterAiController(skel2);
+                    _monsterAis[skelElf.RecogId] = new MonsterAiController(skelElf);
+                    _monsterAis[corpseKing.RecogId] = new MonsterAiController(corpseKing);
+                    _chatLogs.Add("[世界] [兽人古墓] 阴风阵阵，石室内游荡着【骷髅战士】、【骷髅精灵】与深处的【尸王】！");
+                    break;
+                }
+
+                case "2": // 毒蛇山谷
+                {
+                    _entities.Add(new MapEntity(1201, "山谷哨兵", EntityType.Npc, new Vector2(282, 182), appr: 0, maxHp: 1000));
+
+                    var redSnake1 = new MapEntity(2201, "红蛇", EntityType.Monster, new Vector2(284, 183), appr: 8, maxHp: 110);
+                    var tigerSnake1 = new MapEntity(2202, "虎蛇", EntityType.Monster, new Vector2(276, 175), appr: 9, maxHp: 140);
+                    var redSnake2 = new MapEntity(2203, "红蛇", EntityType.Monster, new Vector2(286, 180), appr: 8, maxHp: 110);
+
+                    _entities.Add(redSnake1);
+                    _entities.Add(tigerSnake1);
+                    _entities.Add(redSnake2);
+
+                    _monsterAis[redSnake1.RecogId] = new MonsterAiController(redSnake1);
+                    _monsterAis[tigerSnake1.RecogId] = new MonsterAiController(tigerSnake1);
+                    _monsterAis[redSnake2.RecogId] = new MonsterAiController(redSnake2);
+                    _chatLogs.Add("[世界] [毒蛇山谷] 险峻峡谷中草丛婆娑，盘踞着凶残的【红蛇】与【虎蛇】！");
+                    break;
+                }
+
+                case "3": // 盟重省 (土城)
+                {
+                    _entities.Add(new MapEntity(1301, "盟重客栈掌柜", EntityType.Npc, new Vector2(332, 331), appr: 0, maxHp: 1000));
+                    _entities.Add(new MapEntity(1302, "土城神医", EntityType.Npc, new Vector2(328, 329), appr: 0, maxHp: 1000));
+
+                    var bug1 = new MapEntity(2301, "恶蛆", EntityType.Monster, new Vector2(335, 334), appr: 10, maxHp: 180);
+                    var bug2 = new MapEntity(2302, "盔甲虫", EntityType.Monster, new Vector2(325, 326), appr: 11, maxHp: 130);
+                    var blackPig = new MapEntity(2303, "黑野猪", EntityType.Monster, new Vector2(338, 336), appr: 12, maxHp: 380);
+                    var redPig = new MapEntity(2304, "红野猪", EntityType.Monster, new Vector2(323, 333), appr: 13, maxHp: 320);
+
+                    _entities.Add(bug1);
+                    _entities.Add(bug2);
+                    _entities.Add(blackPig);
+                    _entities.Add(redPig);
+
+                    _monsterAis[bug1.RecogId] = new MonsterAiController(bug1);
+                    _monsterAis[bug2.RecogId] = new MonsterAiController(bug2);
+                    _monsterAis[blackPig.RecogId] = new MonsterAiController(blackPig);
+                    _monsterAis[redPig.RecogId] = new MonsterAiController(redPig);
+                    _chatLogs.Add("[世界] [盟重省] 黄沙狂风席卷土城，沙丘之下潜藏着【盔甲虫】与狂暴的【黑野猪】！");
+                    break;
+                }
+
+                case "0": // 比奇省
+                default:
+                {
+                    _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
+                    _entities.Add(new MapEntity(1002, "比奇城铁匠", EntityType.Npc, new Vector2(331, 269), appr: 0, maxHp: 1000));
+                    _entities.Add(new MapEntity(1003, "回春堂药铺老板", EntityType.Npc, new Vector2(329, 267), appr: 0, maxHp: 1000));
+
+                    var scarecrow = new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(333, 268), appr: 0, maxHp: 80);
+                    var cat = new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(326, 267), appr: 1, maxHp: 100);
+                    var orc = new MapEntity(2003, "半兽人", EntityType.Monster, new Vector2(331, 264), appr: 2, maxHp: 150);
+                    var yeti = new MapEntity(2004, "森林雪人", EntityType.Monster, new Vector2(327, 270), appr: 3, maxHp: 120);
+                    var whitePig = new MapEntity(2005, "白野猪", EntityType.Monster, new Vector2(335, 271), appr: 4, maxHp: 500);
+
+                    _entities.Add(scarecrow);
+                    _entities.Add(cat);
+                    _entities.Add(orc);
+                    _entities.Add(yeti);
+                    _entities.Add(whitePig);
+
+                    _monsterAis[scarecrow.RecogId] = new MonsterAiController(scarecrow);
+                    _monsterAis[cat.RecogId] = new MonsterAiController(cat);
+                    _monsterAis[orc.RecogId] = new MonsterAiController(orc);
+                    _monsterAis[yeti.RecogId] = new MonsterAiController(yeti);
+                    _monsterAis[whitePig.RecogId] = new MonsterAiController(whitePig);
+                    _chatLogs.Add("[世界] [比奇省] 王城守军巡防，城外刷新【稻草人】、【钉耙猫】与【白野猪】！");
+                    break;
+                }
+            }
         }
     }
 
@@ -2495,12 +2691,12 @@ public class GameScene : IScene
 
     private void ReviveAtSafeZone()
     {
-        _playerTilePos = new Vector2(330, 268); // 比奇城安全区中心
+        _playerTilePos = MapManager.Instance.ActiveMap.DefaultSpawnTile;
         _targetTilePos = _playerTilePos;
         _hp = MAX_HP;
         _mp = MAX_MP;
         _currentAction = HumanActionType.Stand;
         _motionStep = 0;
-        _chatLogs.Add("[复活] 祈祷神光自虚空降临，您已在【比奇城安全区】满血复活！");
+        _chatLogs.Add($"[复活] 祈祷神光自虚空降临，您已在【{MapManager.Instance.ActiveMap.Name}安全区】满血复活！");
     }
 }
