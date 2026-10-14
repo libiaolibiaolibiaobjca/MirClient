@@ -96,8 +96,10 @@ public class GameScene : IScene
     private readonly Dictionary<int, MonsterAiController> _monsterAis = new();
     private readonly Dictionary<int, double> _monsterDeathTimes = new();
 
-    // 聊天消息队列
+    // 聊天消息队列与输入框状态
     private readonly List<string> _chatLogs = new();
+    private bool _isChatInputActive = false;
+    private string _chatInputBuffer = "";
 
     public GameScene(GameEngine engine, ClientConfig config)
     {
@@ -214,6 +216,14 @@ public class GameScene : IScene
 
     public void Update(float dt)
     {
+        UpdateChatInput();
+        if (_isChatInputActive)
+        {
+            // 打字输入激活时，阻断人物移动与技能热键
+            _isRunning = false;
+            return;
+        }
+
         HandleInput(dt);
 
         // F11 实时切换 16 位颜色解码模式
@@ -1364,6 +1374,164 @@ public class GameScene : IScene
         {
             FontManager.DrawText(_chatLogs[i], chatTextX, lineY, 12, i == _chatLogs.Count - 1 ? Color.Lime : Color.LightGray);
             lineY += 17;
+        }
+
+        // 底部打字输入栏 (按 Enter 激活打字输入与 GM 调试指令)
+        int inputY = chatBoxY + chatBoxH - 24;
+        Rectangle inputRect = new(chatBoxX + 2, inputY, chatBoxW - 4, 20);
+        bool isHoverInput = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), inputRect);
+        if (isHoverInput && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _isChatInputActive = true;
+        }
+
+        Raylib.DrawRectangleRec(inputRect, _isChatInputActive ? new Color(28, 24, 20, 255) : new Color(14, 12, 10, 200));
+        Raylib.DrawRectangleLinesEx(inputRect, 1, _isChatInputActive ? Color.Gold : (isHoverInput ? Color.Yellow : new Color(75, 62, 40, 180)));
+
+        if (_isChatInputActive)
+        {
+            // 动态闪烁打字竖线光标 |
+            bool showCursor = ((int)(Raylib.GetTime() * 2f) % 2) == 0;
+            string displayInput = _chatInputBuffer + (showCursor ? "|" : "");
+            FontManager.DrawText(displayInput, chatBoxX + 6, inputY + 4, 12, Color.White);
+        }
+        else
+        {
+            FontManager.DrawText("[按 Enter 键输入公屏聊天或 GM 指令]", chatBoxX + 6, inputY + 4, 11, Color.DarkGray);
+        }
+    }
+
+    private void UpdateChatInput()
+    {
+        if (!_isChatInputActive)
+        {
+            if (Raylib.IsKeyPressed(KeyboardKey.Enter))
+            {
+                _isChatInputActive = true;
+            }
+            return;
+        }
+
+        // 取消输入
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            _isChatInputActive = false;
+            _chatInputBuffer = "";
+            return;
+        }
+
+        // 回车提交指令或公屏文字
+        if (Raylib.IsKeyPressed(KeyboardKey.Enter))
+        {
+            string text = _chatInputBuffer.Trim();
+            if (!string.IsNullOrEmpty(text))
+            {
+                var cmd = CommandParser.Parse(text);
+                ExecuteCommand(cmd);
+            }
+            _chatInputBuffer = "";
+            _isChatInputActive = false;
+            return;
+        }
+
+        // 退格键 Backspace
+        if (Raylib.IsKeyPressed(KeyboardKey.Backspace) || Raylib.IsKeyPressedRepeat(KeyboardKey.Backspace))
+        {
+            if (_chatInputBuffer.Length > 0)
+            {
+                _chatInputBuffer = _chatInputBuffer[..^1];
+            }
+        }
+
+        // 读取输入的字符
+        int key = Raylib.GetCharPressed();
+        while (key > 0)
+        {
+            if (key >= 32 && _chatInputBuffer.Length < 60)
+            {
+                _chatInputBuffer += (char)key;
+            }
+            key = Raylib.GetCharPressed();
+        }
+    }
+
+    private void ExecuteCommand(ParsedCommand cmd)
+    {
+        switch (cmd.Type)
+        {
+            case ParsedCommandType.Chat:
+                if (!string.IsNullOrWhiteSpace(cmd.Message))
+                {
+                    _chatLogs.Add($"[{_playerName}] {cmd.Message}");
+                }
+                break;
+
+            case ParsedCommandType.Make:
+                if (cmd.CreatedItem != null)
+                {
+                    if (_inv.AddItem(cmd.CreatedItem))
+                    {
+                        _chatLogs.Add($"[GM] {cmd.Message}，已存入包裹！");
+                    }
+                    else
+                    {
+                        // 包裹已满，生成在脚下地表
+                        _groundItemManager.SpawnItem(_playerTilePos, cmd.CreatedItem);
+                        _chatLogs.Add($"[GM] 包裹已满，{cmd.Message} 已掉落在脚下地面！");
+                    }
+                }
+                break;
+
+            case ParsedCommandType.Gold:
+                _gold = Math.Max(0, _gold + cmd.Amount);
+                _chatLogs.Add($"[GM] 随身金币已调整，当前金币: {_gold:N0}");
+                break;
+
+            case ParsedCommandType.Mob:
+            {
+                Vector2 front = _playerTilePos + (_direction switch
+                {
+                    0 => new Vector2(0, -2),
+                    1 => new Vector2(2, -2),
+                    2 => new Vector2(2, 0),
+                    3 => new Vector2(2, 2),
+                    4 => new Vector2(0, 2),
+                    5 => new Vector2(-2, 2),
+                    6 => new Vector2(-2, 0),
+                    _ => new Vector2(-2, -2)
+                });
+                int newId = 2000 + _entities.Count;
+                int hp = cmd.TargetName == "白野猪" ? 1000 : 200;
+                MapEntity newMob = new(newId, cmd.TargetName, EntityType.Monster, front, 0, hp);
+                lock (_entities)
+                {
+                    _entities.Add(newMob);
+                }
+                _monsterAis[newId] = new MonsterAiController(newMob);
+                _chatLogs.Add($"[GM] 已在前方 ({front.X:F0}, {front.Y:F0}) 召唤【{cmd.TargetName}】！");
+                break;
+            }
+
+            case ParsedCommandType.Move:
+                _playerTilePos = cmd.TargetTile;
+                _targetTilePos = cmd.TargetTile;
+                _cameraPixelPos = cmd.TargetTile * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+                _chatLogs.Add($"[GM] {cmd.Message}！已瞬移抵达。");
+                break;
+
+            case ParsedCommandType.Full:
+                _hp = MAX_HP;
+                _mp = MAX_MP;
+                _chatLogs.Add("[GM] 状态全满！生命值与魔法值已彻底恢复 (HP: 650/650, MP: 320/320)。");
+                break;
+
+            case ParsedCommandType.Help:
+            case ParsedCommandType.Unknown:
+                foreach (var line in cmd.Message.Split('\n'))
+                {
+                    _chatLogs.Add($"[GM] {line}");
+                }
+                break;
         }
     }
 
