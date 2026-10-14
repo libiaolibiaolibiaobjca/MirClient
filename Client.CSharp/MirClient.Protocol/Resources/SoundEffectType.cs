@@ -18,5 +18,7 @@ public enum SoundEffectType
     UsePotion = 11,    // 喝药水咕嘟声
     LevelUp = 12,      // 突破境界升级号角
     ButtonClick = 13,  // 界面圆钮点击声
-    Teleport = 14      // 空间传送门穿梭声
+    Teleport = 14,     // 空间传送门穿梭声
+    PlayerDie = 15,    // 玩家倒地阵亡惨叫
+    Revive = 16        // 神圣复活号角与圣光
 }

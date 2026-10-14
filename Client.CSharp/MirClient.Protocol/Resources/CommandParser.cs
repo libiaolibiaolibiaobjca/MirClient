@@ -18,6 +18,8 @@ public enum ParsedCommandType
     Play,       // @play 试听音效
     Map,        // @map 地图名/ID [X] [Y]
     Protect,    // @protect on/off [阈值%]
+    Kill,       // @kill 角色阵亡自尽测试
+    Revive,     // @revive 原地神圣复活
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -409,6 +411,30 @@ public static class CommandParser
                 };
             }
 
+            case "kill":
+            case "自尽":
+            case "死亡":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Kill,
+                    RawInput = input,
+                    Message = "测试指令：生命值清空，角色进入战败阵亡状态。"
+                };
+            }
+
+            case "revive":
+            case "原地复活":
+            case "复活":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Revive,
+                    RawInput = input,
+                    Message = "测试指令：神圣复活，生命魔法恢复至满值。"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -425,6 +451,8 @@ public static class CommandParser
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
                               "  @map <地图名/ID> [X Y]- 跨地图自由穿梭 (如 @map 兽人古墓, @map 3)\n" +
                               "  @protect <on/off> [HP%]- 智能生命守护/秒喝药设置 (如 @protect on 40)\n" +
+                              "  @kill                 - 角色自尽测试黑白死亡屏\n" +
+                              "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
                               "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
                               "  @cd                   - 一键清空所有技能冷却\n" +

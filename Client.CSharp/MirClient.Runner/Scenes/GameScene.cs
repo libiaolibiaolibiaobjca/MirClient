@@ -142,10 +142,12 @@ public class GameScene : IScene
             _chatLogs.Add($"[离线模式] 当前以本地体验模式运行 (区服: {_config.ServerName})。");
         }
 
+        DeathManager.Instance.Reset();
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 快捷法术: [F1] 雷电术；[F2] 烈火剑法；[F3] 治愈术；[F4] 火球术 (点击法术图标施法)。");
         _chatLogs.Add("[系统] 快捷腰带: 数字键 [1~6] 或鼠标点击快捷使用药水；智能生命保护已激活 (@protect 查看/设置)。");
+        _chatLogs.Add("[系统] 阵亡重生: 角色阵亡进入经典黑白屏，按空格/回车回城复活 (@kill/@revive 测试)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -197,6 +199,17 @@ public class GameScene : IScene
         {
             // 打字输入激活时，阻断人物移动与技能热键
             _isRunning = false;
+            return;
+        }
+
+        if (DeathManager.Instance.IsDead)
+        {
+            _isRunning = false;
+            // 阵亡状态下仅允许响应空格键或回车键触发回城复活
+            if (Raylib.IsKeyPressed(KeyboardKey.Space) || Raylib.IsKeyPressed(KeyboardKey.Enter))
+            {
+                ReviveAtSafeZone();
+            }
             return;
         }
 
@@ -419,9 +432,7 @@ public class GameScene : IScene
 
                     if (_hp <= 0)
                     {
-                        _currentAction = HumanActionType.Die;
-                        _motionStep = 0;
-                        _chatLogs.Add($"[阵亡] 您被【{entity.Name}】击倒在地！点击屏幕中央【安全区满血复活】重返玛法。");
+                        TriggerPlayerDeath($"受到【{entity.Name}】致命反击");
                     }
                 }
             }
@@ -670,7 +681,7 @@ public class GameScene : IScene
         }
 
         // 7. 玩家阵亡界面 (黑白暗红覆屏与安全区复活按钮)
-        if (_hp <= 0)
+        if (DeathManager.Instance.IsDead || _hp <= 0)
         {
             RenderDeathScreen(screenW, screenH);
         }
@@ -1827,6 +1838,14 @@ public class GameScene : IScene
                 _chatLogs.Add($"[系统] {cmd.Message}");
                 break;
 
+            case ParsedCommandType.Kill:
+                TriggerPlayerDeath("执行 GM @kill 自尽指令");
+                break;
+
+            case ParsedCommandType.Revive:
+                ReviveInPlace();
+                break;
+
             case ParsedCommandType.Help:
             case ParsedCommandType.Unknown:
                 foreach (var line in cmd.Message.Split('\n'))
@@ -2751,36 +2770,76 @@ public class GameScene : IScene
         }
     }
 
+    private void TriggerPlayerDeath(string cause)
+    {
+        if (DeathManager.Instance.IsDead) return;
+
+        DeathManager.Instance.TriggerDeath(_playerTilePos, MapManager.Instance.ActiveMap.Id, MapManager.Instance.ActiveMap.Name, Raylib.GetTime());
+        _hp = 0;
+        _currentAction = HumanActionType.Die;
+        _motionStep = 0;
+        _actionTimer = 0f;
+        _isRunning = false;
+        SoundManager.Instance.Play(SoundEffectType.PlayerDie);
+        _chatLogs.Add($"[阵亡] {cause}，您已战败阵亡！按【空格/回车】或点击屏幕中央按钮回城复活。");
+    }
+
+    private void ReviveInPlace()
+    {
+        DeathManager.Instance.ReviveInPlace();
+        _hp = MAX_HP;
+        _mp = MAX_MP;
+        _currentAction = HumanActionType.Stand;
+        _motionStep = 0;
+        _actionTimer = 0f;
+        SoundManager.Instance.Play(SoundEffectType.Revive);
+        _chatLogs.Add("[神圣复活] 神光庇佑，您已在原地满血满状态复活！");
+    }
+
     private void RenderDeathScreen(int screenW, int screenH)
     {
-        // 1. 全屏半透明猩红暗夜滤镜 (还原传奇经典死亡体验)
-        Raylib.DrawRectangle(0, 0, screenW, screenH, new Color(40, 10, 10, 190));
+        // 1. 全屏盛大传奇经典“黑白电视”深灰暗夜覆屏与暗红外框
+        Raylib.DrawRectangle(0, 0, screenW, screenH, new Color(20, 20, 24, 215));
+        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, screenW, screenH), 8, new Color(120, 20, 20, 180));
 
         int centerX = screenW / 2;
-        int centerY = screenH / 2 - 30;
+        int centerY = screenH / 2 - 40;
 
-        // 2. 居中显目阵亡提示
+        // 2. 居中显目阵亡标题
         string deathTitle = "【 您 已 战 败 阵 亡 】";
-        int titleW = FontManager.MeasureText(deathTitle, 22);
-        FontManager.DrawTextWithShadow(deathTitle, centerX - titleW / 2, centerY - 40, 22, Color.Red, Color.Black);
+        int titleW = FontManager.MeasureText(deathTitle, 24);
+        FontManager.DrawTextWithShadow(deathTitle, centerX - titleW / 2, centerY - 45, 24, Color.Red, Color.Black);
+
+        // 阵亡详情与统计
+        string deathInfo = $"阵亡地点: 【{DeathManager.Instance.LastDeathMapName}】 ({(int)DeathManager.Instance.LastDeathTile.X}, {(int)DeathManager.Instance.LastDeathTile.Y}) | 玛法折戟累计: {DeathManager.Instance.DeathCount} 次";
+        int infoW = FontManager.MeasureText(deathInfo, 13);
+        FontManager.DrawTextWithShadow(deathInfo, centerX - infoW / 2, centerY - 10, 13, Color.Gold, Color.Black);
 
         string hint = "胜败乃兵家常事，少侠请回安全区重整旗鼓再战玛法！";
         int hintW = FontManager.MeasureText(hint, 13);
-        FontManager.DrawTextWithShadow(hint, centerX - hintW / 2, centerY, 13, Color.LightGray, Color.Black);
+        FontManager.DrawTextWithShadow(hint, centerX - hintW / 2, centerY + 14, 13, Color.LightGray, Color.Black);
 
-        // 3. 【安全区复活】按钮
-        Rectangle reviveBtn = new(centerX - 80, centerY + 36, 160, 36);
+        // 3. 【安全区复活】按钮与快捷键提示
+        Rectangle reviveBtn = new(centerX - 100, centerY + 46, 200, 38);
         Vector2 mousePos = Raylib.GetMousePosition();
         bool isHover = Raylib.CheckCollisionPointRec(mousePos, reviveBtn);
+        bool canRespawn = DeathManager.Instance.CanRespawn(Raylib.GetTime());
 
-        Raylib.DrawRectangleRec(reviveBtn, isHover ? new Color(160, 30, 30, 255) : new Color(90, 20, 20, 240));
-        Raylib.DrawRectangleLinesEx(reviveBtn, 2, isHover ? Color.Gold : Color.Red);
+        Color btnBg = !canRespawn ? new Color(50, 50, 50, 220) : (isHover ? new Color(160, 30, 30, 255) : new Color(90, 20, 20, 240));
+        Color btnBorder = !canRespawn ? Color.Gray : (isHover ? Color.Gold : Color.Red);
+        Raylib.DrawRectangleRec(reviveBtn, btnBg);
+        Raylib.DrawRectangleLinesEx(reviveBtn, 2, btnBorder);
 
-        string btnText = "安全区满血复活";
+        string btnText = canRespawn ? "安全区满血复活 (Space)" : "请凝神稍候 (1s)...";
         int btnW = FontManager.MeasureText(btnText, 14);
-        FontManager.DrawTextWithShadow(btnText, centerX - btnW / 2, centerY + 46, 14, isHover ? Color.Yellow : Color.White, Color.Black);
+        Color textCol = !canRespawn ? Color.Gray : (isHover ? Color.Yellow : Color.White);
+        FontManager.DrawTextWithShadow(btnText, centerX - btnW / 2, centerY + 58, 14, textCol, Color.Black);
 
-        if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        string keyHint = "[快捷操作: 空格键 / 回车键 直接回城]";
+        int keyW = FontManager.MeasureText(keyHint, 12);
+        FontManager.DrawTextWithShadow(keyHint, centerX - keyW / 2, centerY + 96, 12, Color.DarkGray, Color.Black);
+
+        if (canRespawn && isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             ReviveAtSafeZone();
         }
@@ -2788,13 +2847,29 @@ public class GameScene : IScene
 
     private void ReviveAtSafeZone()
     {
-        _playerTilePos = MapManager.Instance.ActiveMap.DefaultSpawnTile;
-        _targetTilePos = _playerTilePos;
-        _hp = MAX_HP;
-        _mp = MAX_MP;
-        _currentAction = HumanActionType.Stand;
-        _motionStep = 0;
-        _chatLogs.Add($"[复活] 祈祷神光自虚空降临，您已在【{MapManager.Instance.ActiveMap.Name}安全区】满血复活！");
+        if (!DeathManager.Instance.CanRespawn(Raylib.GetTime())) return;
+
+        if (DeathManager.Instance.RespawnAtSafeZone(out string mapId, out string mapName, out Vector2 spawnTile))
+        {
+            if (MapManager.Instance.ActiveMap.Id != mapId)
+            {
+                ExecuteMapTransition(mapId, spawnTile, "阵亡安全区回城复活");
+            }
+            else
+            {
+                _playerTilePos = spawnTile;
+                _targetTilePos = spawnTile;
+                _cameraPixelPos = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            }
+
+            _hp = MAX_HP;
+            _mp = MAX_MP;
+            _currentAction = HumanActionType.Stand;
+            _motionStep = 0;
+            _actionTimer = 0f;
+            SoundManager.Instance.Play(SoundEffectType.Revive);
+            _chatLogs.Add($"[安全区复活] 祈祷神光自虚空降临，您已在【{mapName}安全区】满血复活！");
+        }
     }
 
     private void UseBeltPotion(int slotIndex)
