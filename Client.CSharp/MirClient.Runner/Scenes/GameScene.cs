@@ -84,6 +84,15 @@ public class GameScene : IScene
     private float _mp = 320;
     private const float MAX_MP = 320;
 
+    // 随身金币经济系统 (初始 50,000 金币)
+    private int _gold = 50000;
+
+    // NPC 对话与商店状态
+    private enum NpcDialogMode { Dialog, Shop, Sell }
+    private MapEntity? _activeNpc = null;
+    private NpcProfile? _activeNpcProfile = null;
+    private NpcDialogMode _npcDialogMode = NpcDialogMode.Dialog;
+
     // 聊天消息队列
     private readonly List<string> _chatLogs = new();
 
@@ -120,6 +129,7 @@ public class GameScene : IScene
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 技能法术: [1/F1] 雷电术；[2/F2] 烈火剑法；[3/F3] 治愈术；[4/F4] 火球术 (支持点击底板快捷槽施法)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
+        _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
         // 写入资源诊断日志 client_diagnostic.log
         try
@@ -361,7 +371,20 @@ public class GameScene : IScene
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
-            _engine.SwitchToLoginScene();
+            if (_activeNpc != null)
+            {
+                _activeNpc = null;
+                _activeNpcProfile = null;
+            }
+            else if (_showBag || _showEquip)
+            {
+                _showBag = false;
+                _showEquip = false;
+            }
+            else
+            {
+                _engine.SwitchToLoginScene();
+            }
         }
     }
 
@@ -422,14 +445,33 @@ public class GameScene : IScene
 
             if (mousePos.Y < screenH - 150)
             {
+                // 如果当前正在与 NPC 对话，且点击在对话框内，则不处理地面行走
+                if (_activeNpc != null && CheckNpcDialogCollision(mousePos, screenW, screenH))
+                {
+                    return;
+                }
+
                 Vector2 screenCenter = new(screenW / 2f, (screenH - 140) / 2f);
                 Vector2 offset = mousePos - screenCenter;
-                Vector2 next = _playerTilePos + new Vector2(offset.X / TILE_WIDTH, offset.Y / TILE_HEIGHT);
-                if (!IsCellBlocked((int)next.X, (int)next.Y))
+                Vector2 clickedTile = _playerTilePos + new Vector2(offset.X / TILE_WIDTH, offset.Y / TILE_HEIGHT);
+
+                // 检测是否点击了场景中的 NPC 实体
+                MapEntity? clickedNpc = null;
+                lock (_entities)
                 {
-                    _targetTilePos = next;
+                    clickedNpc = _entities.FirstOrDefault(e => !e.IsDead && e.Type == EntityType.Npc && Vector2.Distance(e.TilePos, clickedTile) < 1.5f);
+                }
+                if (clickedNpc != null)
+                {
+                    OpenNpcDialog(clickedNpc);
+                    return;
+                }
+
+                if (!IsCellBlocked((int)clickedTile.X, (int)clickedTile.Y))
+                {
+                    _targetTilePos = clickedTile;
                     _isRunning = false;
-                    SendMovePacket(next, false);
+                    SendMovePacket(clickedTile, false);
                 }
             }
         }
@@ -500,6 +542,12 @@ public class GameScene : IScene
         // 5. 渲染 F9 背包物品栏与 F10 角色装备状态窗口
         if (_showBag) RenderInventoryWindow(screenW, screenH);
         if (_showEquip) RenderEquipmentWindow(screenW, screenH);
+
+        // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
+        if (_activeNpc != null && _activeNpcProfile != null)
+        {
+            RenderNpcDialogWindow(screenW, screenH);
+        }
     }
 
     private void RenderMapViewport(int viewportW, int viewportH)
@@ -1573,8 +1621,19 @@ public class GameScene : IScene
                     {
                         if (now - _lastBagClickTime < 0.35 && _lastBagClickIndex == i)
                         {
-                            // 触发双击
-                            if (item.Type == ItemType.Potion)
+                            // 若当前处于 NPC 商店出售模式，双击直接折价出售给 NPC
+                            if (_activeNpc != null && _npcDialogMode == NpcDialogMode.Sell)
+                            {
+                                if (NpcShop.TrySellItem(_inv, ref _gold, i, out string soldName, out int gain, out string err))
+                                {
+                                    _chatLogs.Add($"[出售] 成功将【{soldName}】售予【{_activeNpc.Name}】，获得 {gain:N0} 金币！当前金币: {_gold:N0}");
+                                }
+                                else
+                                {
+                                    _chatLogs.Add($"[出售失败] {err}");
+                                }
+                            }
+                            else if (item.Type == ItemType.Potion)
                             {
                                 if (_inv.UsePotion(i, out int hp, out int mp))
                                 {
@@ -1604,6 +1663,13 @@ public class GameScene : IScene
                 }
             }
         }
+
+        // 底部金币与随身负重汇总
+        int bottomBarY = winY + winH - 24;
+        Raylib.DrawRectangle(winX + 4, bottomBarY - 2, winW - 8, 22, new Color(24, 20, 16, 230));
+        Raylib.DrawRectangleLines(winX + 4, bottomBarY - 2, winW - 8, 22, new Color(75, 60, 40, 200));
+        FontManager.DrawText($"金币: {_gold:N0}", winX + 8, bottomBarY + 2, 11, Color.Gold);
+        FontManager.DrawText($"负重: {_inv.TotalWeight}/280", winX + winW - 88, bottomBarY + 2, 11, Color.LightGray);
 
         // 浮动 Tips 渲染在最上层
         if (hoveredItem != null)
@@ -1739,5 +1805,185 @@ public class GameScene : IScene
 
         FontManager.DrawText($"重量: {item.Weight}  持久: {item.Dura}/{item.MaxDura}", tipX + 8, tipY + 56, 10, Color.Gray);
         FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 74, 10, Color.Gold);
+    }
+
+    private bool CheckNpcDialogCollision(Vector2 mousePos, int screenW, int screenH)
+    {
+        int winW = 380;
+        int winH = 280;
+        int winX = (screenW - winW) / 2;
+        int winY = (screenH - 140 - winH) / 2 - 20;
+        return Raylib.CheckCollisionPointRec(mousePos, new Rectangle(winX, winY, winW, winH));
+    }
+
+    private void OpenNpcDialog(MapEntity npc)
+    {
+        _activeNpc = npc;
+        _activeNpcProfile = NpcShop.ResolveProfile(npc.Name);
+        _npcDialogMode = NpcDialogMode.Dialog;
+        _targetTilePos = _playerTilePos; // 停步与 NPC 对话
+        _chatLogs.Add($"[NPC] 正在与【{_activeNpcProfile.Name}】对话...");
+    }
+
+    private void RenderNpcDialogWindow(int screenW, int screenH)
+    {
+        if (_activeNpc == null || _activeNpcProfile == null) return;
+
+        int winW = 380;
+        int winH = 280;
+        int winX = (screenW - winW) / 2;
+        int winY = (screenH - 140 - winH) / 2 - 20;
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 1. 经典复古羊皮木纹外框与金线浮雕
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(20, 16, 12, 245));
+        Raylib.DrawRectangleLines(winX, winY, winW, winH, Color.Gold);
+        Raylib.DrawRectangleLines(winX + 2, winY + 2, winW - 4, winH - 4, new Color(90, 75, 45, 200));
+
+        // 2. 标题栏
+        Raylib.DrawRectangle(winX, winY, winW, 28, new Color(48, 38, 24, 255));
+        string title = $"【 {_activeNpcProfile.Name} 】  {_activeNpcProfile.Title}";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 7, 12, Color.Gold, Color.Black);
+
+        // 关闭叉号 [X]
+        Rectangle closeRect = new(winX + winW - 24, winY + 5, 18, 18);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeRect);
+        Raylib.DrawRectangleRec(closeRect, closeHover ? Color.Maroon : new Color(30, 22, 16, 255));
+        FontManager.DrawText("X", winX + winW - 19, winY + 7, 12, closeHover ? Color.White : Color.Gray);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _activeNpc = null;
+            _activeNpcProfile = null;
+            return;
+        }
+
+        // 3. NPC 状态模式渲染
+        if (_npcDialogMode == NpcDialogMode.Dialog)
+        {
+            // 问候台词
+            FontManager.DrawTextWithShadow(_activeNpcProfile.Greeting, winX + 16, winY + 42, 12, Color.LightGray, Color.Black);
+
+            // 分割金线
+            Raylib.DrawLine(winX + 12, winY + 110, winX + winW - 12, winY + 110, new Color(85, 70, 40, 200));
+
+            // 选项列表
+            int optY = winY + 124;
+            for (int i = 0; i < _activeNpcProfile.Options.Count; i++)
+            {
+                var opt = _activeNpcProfile.Options[i];
+                Rectangle optRect = new(winX + 20, optY, winW - 40, 24);
+                bool optHover = Raylib.CheckCollisionPointRec(mousePos, optRect);
+
+                if (optHover)
+                {
+                    Raylib.DrawRectangleRec(optRect, new Color(60, 48, 30, 180));
+                    Raylib.DrawRectangleLinesEx(optRect, 1, Color.Gold);
+                }
+
+                Color optColor = optHover ? Color.Yellow : new Color(130, 200, 255, 255);
+                FontManager.DrawText(opt.Label, winX + 26, optY + 5, 12, optColor);
+
+                if (optHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    HandleNpcAction(opt.ActionCode);
+                }
+
+                optY += 28;
+            }
+        }
+        else if (_npcDialogMode == NpcDialogMode.Shop)
+        {
+            // 货架列表
+            FontManager.DrawTextWithShadow($"【 随身金币: {_gold:N0} 】 点击商品即可购买", winX + 16, winY + 36, 12, Color.Lime, Color.Black);
+
+            int goodsY = winY + 62;
+            for (int i = 0; i < _activeNpcProfile.Goods.Count; i++)
+            {
+                var g = _activeNpcProfile.Goods[i];
+                Rectangle itemRect = new(winX + 16, goodsY, winW - 32, 42);
+                bool gHover = Raylib.CheckCollisionPointRec(mousePos, itemRect);
+
+                Raylib.DrawRectangleRec(itemRect, gHover ? new Color(45, 36, 24, 220) : new Color(24, 20, 16, 200));
+                Raylib.DrawRectangleLinesEx(itemRect, 1, gHover ? Color.Gold : new Color(80, 65, 40, 200));
+
+                FontManager.DrawText(g.Item.Name, winX + 24, goodsY + 6, 12, Color.Gold);
+                string desc = g.Item.Type == ItemType.Weapon ? $"攻击: {g.Item.MinDc}-{g.Item.MaxDc}  重量: {g.Item.Weight}" :
+                              g.Item.Type == ItemType.Dress ? $"防御: {g.Item.MinAc}-{g.Item.MaxAc}  重量: {g.Item.Weight}" :
+                              $"恢复: HP+{g.Item.HpRestore} MP+{g.Item.MpRestore}";
+                FontManager.DrawText(desc, winX + 24, goodsY + 24, 10, Color.LightGray);
+
+                // 购买按钮
+                Rectangle buyBtn = new(winX + winW - 100, goodsY + 8, 76, 26);
+                bool buyHover = Raylib.CheckCollisionPointRec(mousePos, buyBtn);
+                Raylib.DrawRectangleRec(buyBtn, buyHover ? Color.DarkGreen : new Color(30, 48, 30, 240));
+                Raylib.DrawRectangleLinesEx(buyBtn, 1, buyHover ? Color.Lime : Color.Green);
+                FontManager.DrawText($"{g.Price:N0}金", winX + winW - 95, goodsY + 14, 11, Color.White);
+
+                if (buyHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    if (NpcShop.TryBuyItem(_inv, ref _gold, g, out string err))
+                    {
+                        _chatLogs.Add($"[交易] 成功购买【{g.Item.Name}】！花费 {g.Price:N0} 金币。(剩余金币: {_gold:N0})");
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[购买失败] {err}");
+                    }
+                }
+
+                goodsY += 48;
+            }
+
+            // 返回按钮
+            Rectangle backBtn = new(winX + 16, winY + winH - 32, 60, 22);
+            bool backHover = Raylib.CheckCollisionPointRec(mousePos, backBtn);
+            Raylib.DrawRectangleRec(backBtn, backHover ? new Color(50, 40, 30, 240) : new Color(30, 24, 18, 200));
+            Raylib.DrawRectangleLinesEx(backBtn, 1, backHover ? Color.Gold : Color.Gray);
+            FontManager.DrawText("< 返回", winX + 24, winY + winH - 28, 11, backHover ? Color.Yellow : Color.White);
+            if (backHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                _npcDialogMode = NpcDialogMode.Dialog;
+            }
+        }
+    }
+
+    private void HandleNpcAction(string actionCode)
+    {
+        switch (actionCode)
+        {
+            case "@buy":
+                _npcDialogMode = NpcDialogMode.Shop;
+                break;
+            case "@sell":
+                _npcDialogMode = NpcDialogMode.Sell;
+                _showBag = true; // 自动呼出包裹
+                _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“双击包裹中的闲置装备或药水即可直接折价出售！”");
+                break;
+            case "@repair":
+                _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“少侠的神兵完好如初，无需特修！”");
+                break;
+            case "@tele_mengzhong":
+                _playerTilePos = new Vector2(330, 330);
+                _targetTilePos = _playerTilePos;
+                _activeNpc = null;
+                _activeNpcProfile = null;
+                _chatLogs.Add("[空间法阵] 空间波动涌现，您已被传送至【盟重省土城 (330, 330)】！");
+                break;
+            case "@tele_snake":
+                _playerTilePos = new Vector2(150, 150);
+                _targetTilePos = _playerTilePos;
+                _activeNpc = null;
+                _activeNpcProfile = null;
+                _chatLogs.Add("[空间法阵] 穿过比奇关隘，您已抵达【毒蛇山谷隘口 (150, 150)】！");
+                break;
+            case "@legend":
+                _chatLogs.Add("[传说] 比奇老兵：“相传唯有攻陷沙巴克皇宫并立于城主雕像之巅的行会霸主，方能号令玛法！”");
+                break;
+            case "@close":
+            default:
+                _activeNpc = null;
+                _activeNpcProfile = null;
+                break;
+        }
     }
 }

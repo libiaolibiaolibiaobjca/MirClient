@@ -183,4 +183,20 @@ public class InventoryManager
         }
         return true;
     }
+
+    public Item? GetItem(int bagIndex) => (bagIndex >= 0 && bagIndex < BAG_CAPACITY) ? _bag[bagIndex] : null;
+
+    public bool RemoveItem(int bagIndex)
+    {
+        if (bagIndex < 0 || bagIndex >= BAG_CAPACITY || _bag[bagIndex] == null) return false;
+        _bag[bagIndex] = null;
+        return true;
+    }
+
+    public int ItemCount => _bag.Count(i => i != null);
+
+    public void ClearBag()
+    {
+        for (int i = 0; i < BAG_CAPACITY; i++) _bag[i] = null;
+    }
 }
