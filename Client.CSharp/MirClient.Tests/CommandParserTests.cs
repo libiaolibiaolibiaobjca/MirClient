@@ -76,6 +76,18 @@ public class CommandParserTests
     }
 
     [Fact]
+    public void TestParse_LevelAndExpCommand()
+    {
+        var cmdLvl = CommandParser.Parse("@level 35");
+        Assert.Equal(ParsedCommandType.Level, cmdLvl.Type);
+        Assert.Equal(35, cmdLvl.Amount);
+
+        var cmdExp = CommandParser.Parse("@exp 50000");
+        Assert.Equal(ParsedCommandType.Exp, cmdExp.Type);
+        Assert.Equal(50000, cmdExp.Amount);
+    }
+
+    [Fact]
     public void TestParse_ChatAndHelp()
     {
         // 普通公屏消息

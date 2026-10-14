@@ -77,11 +77,14 @@ public class GameScene : IScene
     private const int TILE_WIDTH = 48;
     private const int TILE_HEIGHT = 32;
 
-    // 生命与魔法值
-    private float _hp = 650;
-    private const float MAX_HP = 650;
+    // 角色等级经验与生命魔法成长系统
+    private readonly CharacterProgression _progression = new(35);
+    private float _hp = 710;
+    private float MaxHp => _progression.MaxHp;
+    private float MAX_HP => MaxHp;
     private float _mp = 320;
-    private const float MAX_MP = 320;
+    private float MaxMp => _progression.MaxMp;
+    private float MAX_MP => MaxMp;
 
     // 随身金币经济系统 (初始 50,000 金币)
     private int _gold = 50000;
@@ -885,8 +888,7 @@ public class GameScene : IScene
                 _chatLogs.Add($"[战斗] 挥砍命中【{target.Name}】造成 {damage} 点伤害！目标生命: {target.Hp}/{target.MaxHp}");
                 if (target.IsDead)
                 {
-                    _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +100");
-                    HandleMonsterLoot(target);
+                    HandleMonsterKill(target);
                 }
             }
             else if (target.Type == EntityType.Npc)
@@ -1026,9 +1028,34 @@ public class GameScene : IScene
         _chatLogs.Add($"[战斗] 【{skillName}】重创【{target.Name}】造成 {damage} 点伤害！剩余生命: {target.Hp}/{target.MaxHp}");
         if (target.IsDead)
         {
-            _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +150");
-            HandleMonsterLoot(target);
+            HandleMonsterKill(target);
         }
+    }
+
+    private void HandleMonsterKill(MapEntity target)
+    {
+        int expGain = target.Name switch
+        {
+            "白野猪" => 1200,
+            "半兽人" => 280,
+            "森林雪人" => 200,
+            "钉耙猫" => 120,
+            "稻草人" => 80,
+            _ => 100
+        };
+
+        bool leveled = _progression.AddExp(expGain, out int levelsGained);
+        _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +{expGain} (当前: Lv.{_progression.Level} {_progression.CurrentExp}/{_progression.RequiredExp})");
+
+        if (leveled)
+        {
+            _hp = MaxHp;
+            _mp = MaxMp;
+            _skillFx.SpawnLevelUp(_playerTilePos);
+            _chatLogs.Add($"[升级] ★★★ 恭喜侠士！境界突破升至【{_progression.Level}级】！生命与魔法上限增长，全状态恢复满盈！ ★★★");
+        }
+
+        HandleMonsterLoot(target);
     }
 
     private void HandleMonsterLoot(MapEntity target)
@@ -1282,6 +1309,48 @@ public class GameScene : IScene
 
         // 4. 右侧 F1 ~ F8 快捷技能槽与原生红宝石圆钮交互 (避开聊天框，精准居于右侧凹槽)
         RenderSkillAndFuncButtons(boardX, boardY);
+
+        // 5. 底板经典黄绿色经验刻度条 (0% ~ 100%)
+        RenderExpProgressBar(boardX, boardY, boardW, boardH);
+    }
+
+    private void RenderExpProgressBar(int boardX, int boardY, int boardW, int boardH)
+    {
+        int screenH = Raylib.GetScreenHeight();
+        int expH = 4;
+        int expY = screenH - expH;
+        Rectangle bgRect = new(boardX, expY, boardW, expH);
+        Raylib.DrawRectangleRec(bgRect, new Color(12, 18, 12, 255));
+
+        // 经验填充进度
+        int fillW = (int)(boardW * _progression.ExpPercent);
+        if (fillW > 0)
+        {
+            Rectangle fillRect = new(boardX, expY, fillW, expH);
+            Raylib.DrawRectangleRec(fillRect, new Color(140, 230, 40, 255));
+        }
+
+        // 8 个等距刻度线
+        for (int i = 1; i <= 7; i++)
+        {
+            int tickX = boardX + (boardW * i / 8);
+            Raylib.DrawLine(tickX, expY, tickX, expY + expH, new Color(40, 60, 20, 255));
+        }
+
+        // 鼠标悬停扩大感应区浮现经验详情
+        Vector2 mousePos = Raylib.GetMousePosition();
+        Rectangle hoverArea = new(boardX, expY - 8, boardW, 12);
+        if (Raylib.CheckCollisionPointRec(mousePos, hoverArea))
+        {
+            string expTip = $"【经验】Lv.{_progression.Level}  {_progression.CurrentExp:#,##0} / {_progression.RequiredExp:#,##0} ({_progression.ExpPercent:P2})";
+            int tipW = FontManager.MeasureText(expTip, 11);
+            int tipX = Math.Clamp((int)mousePos.X - tipW / 2, boardX, boardX + boardW - tipW - 8);
+            int tipY = expY - 20;
+
+            Raylib.DrawRectangle(tipX - 4, tipY - 2, tipW + 8, 16, new Color(10, 10, 10, 230));
+            Raylib.DrawRectangleLines(tipX - 4, tipY - 2, tipW + 8, 16, Color.Gold);
+            FontManager.DrawText(expTip, tipX, tipY, 11, Color.Yellow);
+        }
     }
 
     private void RenderSkillAndFuncButtons(int boardX, int boardY)
@@ -1520,9 +1589,32 @@ public class GameScene : IScene
                 break;
 
             case ParsedCommandType.Full:
-                _hp = MAX_HP;
-                _mp = MAX_MP;
-                _chatLogs.Add("[GM] 状态全满！生命值与魔法值已彻底恢复 (HP: 650/650, MP: 320/320)。");
+                _hp = MaxHp;
+                _mp = MaxMp;
+                _chatLogs.Add($"[GM] 状态全满！生命值与魔法值已彻底恢复 (HP: {(int)MaxHp}/{(int)MaxHp}, MP: {(int)MaxMp}/{(int)MaxMp})。");
+                break;
+
+            case ParsedCommandType.Level:
+                _progression.SetLevel(cmd.Amount);
+                _hp = MaxHp;
+                _mp = MaxMp;
+                _skillFx.SpawnLevelUp(_playerTilePos);
+                _chatLogs.Add($"[GM] 角色等级已调整至【{_progression.Level}级】！生命上限: {(int)MaxHp}, 魔法上限: {(int)MaxMp}");
+                break;
+
+            case ParsedCommandType.Exp:
+                bool expLeveled = _progression.AddExp(cmd.Amount, out int g);
+                if (expLeveled)
+                {
+                    _hp = MaxHp;
+                    _mp = MaxMp;
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                    _chatLogs.Add($"[GM] 注入经验 +{cmd.Amount}！境界突破升至【{_progression.Level}级】！");
+                }
+                else
+                {
+                    _chatLogs.Add($"[GM] 注入经验 +{cmd.Amount}！当前经验: {_progression.CurrentExp}/{_progression.RequiredExp} ({_progression.ExpPercent:P1})");
+                }
                 break;
 
             case ParsedCommandType.Help:
@@ -2060,11 +2152,18 @@ public class GameScene : IScene
         int attrY = winY + 228;
         Raylib.DrawLine(winX + 10, attrY, winX + winW - 10, attrY, new Color(75, 62, 40, 200));
 
-        FontManager.DrawText($"物理攻击 (DC): {_inv.TotalMinDc} - {_inv.TotalMaxDc}", winX + 15, attrY + 8, 12, Color.White);
-        FontManager.DrawText($"物理防御 (AC): {_inv.TotalMinAc} - {_inv.TotalMaxAc}", winX + 15, attrY + 28, 12, Color.White);
-        FontManager.DrawText($"生命数值 (HP): {(int)_hp} / {(int)MAX_HP}", winX + 15, attrY + 48, 12, Color.Lime);
-        FontManager.DrawText($"魔法数值 (MP): {(int)_mp} / {(int)MAX_MP}", winX + 15, attrY + 68, 12, Color.SkyBlue);
-        FontManager.DrawText($"随身负重: {_inv.TotalWeight} / 280", winX + 15, attrY + 88, 12, Color.LightGray);
+        // 同步等级基础属性至包裹系统
+        _inv.BaseMinDc = _progression.BaseMinDc;
+        _inv.BaseMaxDc = _progression.BaseMaxDc;
+        _inv.BaseMinAc = _progression.BaseMinAc;
+        _inv.BaseMaxAc = _progression.BaseMaxAc;
+
+        FontManager.DrawText($"角色等级: Lv.{_progression.Level} (EXP: {_progression.ExpPercent:P1})", winX + 15, attrY + 8, 12, Color.Gold);
+        FontManager.DrawText($"物理攻击 (DC): {_inv.TotalMinDc} - {_inv.TotalMaxDc}", winX + 15, attrY + 28, 12, Color.White);
+        FontManager.DrawText($"物理防御 (AC): {_inv.TotalMinAc} - {_inv.TotalMaxAc}", winX + 15, attrY + 46, 12, Color.White);
+        FontManager.DrawText($"生命数值 (HP): {(int)_hp} / {(int)MAX_HP}", winX + 15, attrY + 64, 12, Color.Lime);
+        FontManager.DrawText($"魔法数值 (MP): {(int)_mp} / {(int)MAX_MP}", winX + 15, attrY + 82, 12, Color.SkyBlue);
+        FontManager.DrawText($"随身负重: {_inv.TotalWeight} / 280", winX + 15, attrY + 100, 12, Color.LightGray);
 
         if (hoveredItem != null)
         {

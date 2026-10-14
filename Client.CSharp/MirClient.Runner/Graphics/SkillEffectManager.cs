@@ -39,6 +39,7 @@ public class SkillEffectManager
     public void SpawnFireSword(Vector2 playerTile, int direction) => AddEffect(new FireSwordEffect(playerTile, direction));
     public void SpawnHealing(Vector2 targetTile) => AddEffect(new HealingEffect(targetTile));
     public void SpawnFireball(Vector2 startTile, Vector2 targetTile, Action? onHit = null) => AddEffect(new FireballEffect(startTile, targetTile, onHit));
+    public void SpawnLevelUp(Vector2 targetTile) => AddEffect(new LevelUpEffect(targetTile));
 
     public void Update(float dt)
     {
@@ -286,3 +287,71 @@ public class FireballEffect : ISkillEffect
         }
     }
 }
+
+/// <summary>
+/// 盛大热血传奇经典升级金色圣光柱与脚底法阵特效
+/// </summary>
+public class LevelUpEffect : ISkillEffect
+{
+    private readonly Vector2 _tilePos;
+    private float _time = 0f;
+    private const float DURATION = 1.6f;
+
+    public bool IsFinished => _time >= DURATION;
+
+    public LevelUpEffect(Vector2 tilePos)
+    {
+        _tilePos = tilePos;
+    }
+
+    public void Update(float dt)
+    {
+        _time += dt;
+    }
+
+    public void Draw(Vector2 screenCenter, Vector2 playerTilePos, int tileW, int tileH)
+    {
+        Vector2 targetPx = screenCenter + (_tilePos - playerTilePos) * new Vector2(tileW, tileH);
+        float progress = _time / DURATION;
+        float alpha = MathF.Sin(progress * MathF.PI); // 0 -> 1 -> 0 平滑渐入渐出
+
+        int a = (int)(255 * alpha);
+        Color pillarColor = new(255, 230, 80, (int)(a * 0.75f));
+        Color coreColor = new(255, 255, 200, a);
+        Color ringColor = new(255, 215, 0, a);
+
+        // 1. 从天而降的垂直金色圣光柱 (长达 600 像素直冲云霄)
+        int pillarW = 28 + (int)(12 * MathF.Sin(_time * 12f));
+        int pillarX = (int)targetPx.X - pillarW / 2;
+        int pillarTop = (int)targetPx.Y - 500;
+        int pillarH = 500;
+
+        Raylib.DrawRectangle(pillarX, pillarTop, pillarW, pillarH, pillarColor);
+        // 中心高亮纯白光芯
+        Raylib.DrawRectangle((int)targetPx.X - pillarW / 4, pillarTop, pillarW / 2, pillarH, coreColor);
+
+        // 2. 脚底向外扩散的同心流光光环
+        for (int i = 0; i < 3; i++)
+        {
+            float ringPhase = (_time * 1.5f + i * 0.33f) % 1.0f;
+            float ringRadius = 10f + ringPhase * 36f;
+            int ringAlpha = (int)(a * (1.0f - ringPhase));
+            Raylib.DrawCircleLines((int)targetPx.X, (int)targetPx.Y, ringRadius, new Color(255, 215, 0, ringAlpha));
+        }
+
+        // 3. 向上升腾的灵力火花微粒
+        for (int p = 0; p < 8; p++)
+        {
+            float seed = p * 1.37f;
+            float pProgress = (_time * 1.8f + seed) % 1.0f;
+            float px = targetPx.X + MathF.Sin(seed * 6.28f + _time * 4f) * 24f;
+            float py = targetPx.Y - pProgress * 120f;
+            Raylib.DrawCircle((int)px, (int)py, 3f * (1.0f - pProgress), Color.Yellow);
+        }
+
+        // 4. 头顶漂浮金色大字 "LEVEL UP!"
+        float textY = targetPx.Y - 60f - (progress * 25f);
+        FontManager.DrawTextWithShadow("LEVEL UP!", (int)targetPx.X - 38, (int)textY, 14, Color.Gold, Color.Black);
+    }
+}
+

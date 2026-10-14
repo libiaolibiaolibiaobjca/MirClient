@@ -10,6 +10,8 @@ public enum ParsedCommandType
     Mob,        // @mob 怪物名称 [数量]
     Move,       // @move X Y
     Full,       // @full 满血满魔
+    Level,      // @level 等级
+    Exp,        // @exp 经验值
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -191,6 +193,50 @@ public static class CommandParser
                 };
             }
 
+            case "level":
+            case "等级":
+            {
+                if (parts.Length < 2 || !int.TryParse(parts[1], out int targetLevel))
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @level <目标等级> (例如: @level 35)"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Level,
+                    RawInput = input,
+                    Amount = targetLevel,
+                    Message = $"等级调整指令: 目标 {targetLevel} 级"
+                };
+            }
+
+            case "exp":
+            case "经验":
+            {
+                if (parts.Length < 2 || !long.TryParse(parts[1], out long expAmount))
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @exp <经验数值> (例如: @exp 50000)"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Exp,
+                    RawInput = input,
+                    Amount = (int)Math.Min(int.MaxValue, expAmount),
+                    Message = $"增加经验: {expAmount:#,##0}"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -205,6 +251,8 @@ public static class CommandParser
                               "  @gold <数值>          - 充值随身金币 (如 @gold 100000)\n" +
                               "  @mob <怪物名>         - 眼前刷怪 (如 @mob 白野猪)\n" +
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
+                              "  @level <等级>         - 调整等级 (如 @level 35)\n" +
+                              "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
                               "  @full                 - 满血满魔\n" +
                               "  直接输入普通文本可进行公屏聊天发言！"
                 };
