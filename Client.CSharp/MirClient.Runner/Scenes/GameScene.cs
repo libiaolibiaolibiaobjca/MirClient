@@ -54,9 +54,8 @@ public class GameScene : IScene
     private double _lastEquipClickTime = 0;
     private int _lastEquipClickSlot = -1;
 
-    // 地表掉落物结构
-    private record GroundItem(Item Item, Vector2 TilePos, float SpawnTime);
-    private readonly List<GroundItem> _groundItems = new();
+    // 地表掉落与拾取管理系统
+    private readonly GroundItemManager _groundItemManager = new();
 
     // 全屏技能法术与粒子光效系统
     private readonly SkillEffectManager _skillFx = new();
@@ -422,20 +421,21 @@ public class GameScene : IScene
         Vector2 targetPixel = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
         _cameraPixelPos = Vector2.Lerp(_cameraPixelPos, targetPixel, 10f * dt);
 
-        // 自动拾取脚下地面战利品
-        lock (_groundItems)
+        // 推进地表掉落物寿命与自动超时清理
+        _groundItemManager.Update(dt);
+
+        // 拾取脚下或周围战利品 (按空格键主动拾取，或移动走近时自动踩取)
+        bool isSpacePressed = Raylib.IsKeyPressed(KeyboardKey.Space);
+        bool isMoving = _currentAction == HumanActionType.Walk || _currentAction == HumanActionType.Run || _isRunning;
+        if (isSpacePressed || isMoving)
         {
-            for (int i = _groundItems.Count - 1; i >= 0; i--)
+            if (_groundItemManager.TryPickupNearest(_playerTilePos, _inv, ref _gold, out string pickupMsg))
             {
-                var gi = _groundItems[i];
-                if (Vector2.Distance(_playerTilePos, gi.TilePos) < 0.75f)
-                {
-                    if (_inv.AddItem(gi.Item))
-                    {
-                        _chatLogs.Add($"[拾取] 获得【{gi.Item.Name}】！已存入包裹。");
-                        _groundItems.RemoveAt(i);
-                    }
-                }
+                _chatLogs.Add($"[拾取] {pickupMsg}");
+            }
+            else if (isSpacePressed && !string.IsNullOrEmpty(pickupMsg))
+            {
+                _chatLogs.Add($"[提示] {pickupMsg}");
             }
         }
 
@@ -731,21 +731,64 @@ public class GameScene : IScene
         }
 
         // 【Pass 4: 地面战利品与光芒 (Ground Items)】
-        lock (_groundItems)
-        {
-            foreach (var gi in _groundItems)
-            {
-                Vector2 rel = gi.TilePos - _playerTilePos;
-                Vector2 itemPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
-                if (itemPixel.X < -60 || itemPixel.X > viewportW + 60 || itemPixel.Y < -60 || itemPixel.Y > viewportH + 60)
-                    continue;
+        Vector2 mousePos = Raylib.GetMousePosition();
+        bool isMouseInViewport = mousePos.X >= 0 && mousePos.X <= viewportW && mousePos.Y >= 0 && mousePos.Y <= viewportH;
+        GroundItem? hoveredItem = null;
 
-                // 闪烁金色光芒与物品品名
-                float time = (float)Raylib.GetTime();
-                float glow = 0.6f + 0.4f * MathF.Sin(time * 5f);
-                Color glowColor = new(255, (int)(215 * glow), 0, 255);
-                Raylib.DrawCircleLines((int)itemPixel.X, (int)itemPixel.Y, 8, glowColor);
-                FontManager.DrawTextWithShadow(gi.Item.Name, (int)itemPixel.X - 16, (int)itemPixel.Y - 14, 11, Color.Gold, Color.Black);
+        foreach (var gi in _groundItemManager.Items)
+        {
+            Vector2 rel = gi.TilePos - _playerTilePos;
+            Vector2 itemPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            if (itemPixel.X < -60 || itemPixel.X > viewportW + 60 || itemPixel.Y < -60 || itemPixel.Y > viewportH + 60)
+                continue;
+
+            // 呼吸动态光华
+            float time = (float)Raylib.GetTime();
+            float glow = 0.65f + 0.35f * MathF.Sin(time * 6f + gi.Id);
+            
+            Color itemColor = gi.IsGold 
+                ? Color.Gold 
+                : (gi.Item?.Type == ItemType.Potion ? new Color(100, 255, 100, 255) : Color.RayWhite);
+
+            Color glowColor = new(itemColor.R, itemColor.G, itemColor.B, (byte)(200 * glow));
+            Raylib.DrawCircleLines((int)itemPixel.X, (int)itemPixel.Y, 9, glowColor);
+
+            // 品名标牌底色
+            string label = gi.DisplayName;
+            int textW = Raylib.MeasureText(label, 11);
+            Rectangle labelRect = new(itemPixel.X - textW / 2f - 4, itemPixel.Y - 16, textW + 8, 14);
+            Raylib.DrawRectangleRec(labelRect, new Color(0, 0, 0, 160));
+
+            // 检测鼠标悬停
+            bool isHovered = isMouseInViewport && Raylib.CheckCollisionPointRec(mousePos, labelRect);
+            if (isHovered)
+            {
+                hoveredItem = gi;
+                Raylib.DrawRectangleLinesEx(labelRect, 1, Color.White);
+            }
+            else
+            {
+                Raylib.DrawRectangleLinesEx(labelRect, 1, new Color(itemColor.R, itemColor.G, itemColor.B, (byte)120));
+            }
+
+            FontManager.DrawTextWithShadow(label, (int)(itemPixel.X - textW / 2f), (int)itemPixel.Y - 15, 11, itemColor, Color.Black);
+        }
+
+        // 鼠标左键点击地表掉落物直接拾取或寻路前往
+        if (hoveredItem != null && Raylib.IsMouseButtonPressed(MouseButton.Left) && !_showBag && !_showEquip && _activeNpc == null)
+        {
+            float dist = Vector2.Distance(_playerTilePos, hoveredItem.TilePos);
+            if (dist <= 1.25f)
+            {
+                if (_groundItemManager.TryPickupNearest(_playerTilePos, _inv, ref _gold, out string pickupMsg))
+                {
+                    _chatLogs.Add($"[拾取] {pickupMsg}");
+                }
+            }
+            else
+            {
+                _targetTilePos = hoveredItem.TilePos;
+                _chatLogs.Add($"[寻路] 前往拾取【{hoveredItem.DisplayName}】...");
             }
         }
 
@@ -833,20 +876,7 @@ public class GameScene : IScene
                 if (target.IsDead)
                 {
                     _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +100");
-
-                    // 掉落地面物品
-                    Item drop = Random.Shared.Next(4) switch
-                    {
-                        0 => Item.CreateEbonySword(),
-                        1 => Item.CreateHeavyArmor(),
-                        2 => Item.CreateJudgmentMace(),
-                        _ => Item.CreateRedPotion(3)
-                    };
-                    lock (_groundItems)
-                    {
-                        _groundItems.Add(new GroundItem(drop, target.TilePos, (float)Raylib.GetTime()));
-                    }
-                    _chatLogs.Add($"[掉落] 地面出现战利品【{drop.Name}】！走近即可拾取。");
+                    HandleMonsterLoot(target);
                 }
             }
             else if (target.Type == EntityType.Npc)
@@ -987,19 +1017,23 @@ public class GameScene : IScene
         if (target.IsDead)
         {
             _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +150");
+            HandleMonsterLoot(target);
+        }
+    }
 
-            Item drop = Random.Shared.Next(4) switch
+    private void HandleMonsterLoot(MapEntity target)
+    {
+        var drops = _groundItemManager.GenerateMonsterDrops(target.Name, target.TilePos, (x, y) => IsCellBlocked(x, y));
+        if (drops.Count > 0)
+        {
+            if (drops.Count >= 5)
             {
-                0 => Item.CreateEbonySword(),
-                1 => Item.CreateHeavyArmor(),
-                2 => Item.CreateJudgmentMace(),
-                _ => Item.CreateRedPotion(3)
-            };
-            lock (_groundItems)
-            {
-                _groundItems.Add(new GroundItem(drop, target.TilePos, (float)Raylib.GetTime()));
+                _chatLogs.Add($"[大爆] 【{target.Name}】倒地！爆出 {drops.Count} 件珍稀战利品散落一地！(按空格键[Space]或走近即可拾取)");
             }
-            _chatLogs.Add($"[掉落] 地面出现战利品【{drop.Name}】！走近即可拾取。");
+            else
+            {
+                _chatLogs.Add($"[掉落] 【{target.Name}】爆出了 {drops.Count} 件战利品！(按空格键[Space]或走近即可拾取)");
+            }
         }
     }
 
