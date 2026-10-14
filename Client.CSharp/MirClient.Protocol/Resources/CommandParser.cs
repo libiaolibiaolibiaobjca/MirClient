@@ -13,6 +13,9 @@ public enum ParsedCommandType
     Level,      // @level 等级
     Exp,        // @exp 经验值
     Cooldown,   // @cd 清空技能冷却
+    Mute,       // @mute 开关静音
+    Sound,      // @sound 音量(0~100)
+    Play,       // @play 试听音效
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -26,6 +29,7 @@ public class ParsedCommand
     public int Amount { get; set; }
     public string TargetName { get; set; } = "";
     public Vector2 TargetTile { get; set; }
+    public SoundEffectType? TargetSound { get; set; }
 }
 
 /// <summary>
@@ -250,6 +254,89 @@ public static class CommandParser
                 };
             }
 
+            case "mute":
+            case "静音":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Mute,
+                    RawInput = input,
+                    Message = "静音状态已切换"
+                };
+            }
+
+            case "sound":
+            case "音量":
+            {
+                if (parts.Length < 2 || !int.TryParse(parts[1], out int vol))
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @sound <0~100> (例如: @sound 80)"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Sound,
+                    RawInput = input,
+                    Amount = Math.Clamp(vol, 0, 100),
+                    Message = $"音量调整: {vol}%"
+                };
+            }
+
+            case "play":
+            case "音效":
+            case "播放":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @play <音效名> (例如: @play gold, @play thunder, @play levelup)"
+                    };
+                }
+
+                string sName = parts[1].ToLowerInvariant();
+                SoundEffectType? st = sName switch
+                {
+                    "gold" or "金币" => SoundEffectType.PickupGold,
+                    "item" or "物品" or "装备" => SoundEffectType.PickupItem,
+                    "thunder" or "雷电" => SoundEffectType.Thunder,
+                    "fire" or "烈火" => SoundEffectType.FireSword,
+                    "fireball" or "火球" => SoundEffectType.Fireball,
+                    "heal" or "治愈" => SoundEffectType.Heal,
+                    "swing" or "挥刀" => SoundEffectType.AttackSwing,
+                    "die" or "死亡" or "怪物死" => SoundEffectType.MonsterDie,
+                    "struck" or "受击" => SoundEffectType.MonsterStruck,
+                    "potion" or "喝药" => SoundEffectType.UsePotion,
+                    "levelup" or "升级" => SoundEffectType.LevelUp,
+                    _ => null
+                };
+
+                if (!st.HasValue)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = $"未知音效【{parts[1]}】！可选: gold, item, thunder, fire, fireball, heal, swing, die, potion, levelup"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Play,
+                    RawInput = input,
+                    TargetSound = st.Value,
+                    Message = $"试听音效【{st.Value}】"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -267,6 +354,9 @@ public static class CommandParser
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
                               "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
                               "  @cd                   - 一键清空所有技能冷却\n" +
+                              "  @mute                 - 开关静音\n" +
+                              "  @sound <0~100>        - 调整音量\n" +
+                              "  @play <音效名>        - 试听音效 (如 @play gold, @play thunder)\n" +
                               "  @full                 - 满血满魔满状态\n" +
                               "  直接输入普通文本可进行公屏聊天发言！"
                 };

@@ -448,6 +448,14 @@ public class GameScene : IScene
             if (_groundItemManager.TryPickupNearest(_playerTilePos, _inv, ref _gold, out string pickupMsg))
             {
                 _chatLogs.Add($"[拾取] {pickupMsg}");
+                if (pickupMsg.Contains("金币"))
+                {
+                    SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                }
+                else
+                {
+                    SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                }
             }
             else if (isSpacePressed && !string.IsNullOrEmpty(pickupMsg))
             {
@@ -856,6 +864,7 @@ public class GameScene : IScene
         _currentAction = HumanActionType.Attack;
         _motionStep = 0;
         _actionTimer = 0f;
+        SoundManager.Instance.Play(SoundEffectType.AttackSwing);
 
         // 若处于联机状态，向网关上报攻击指令 CM_HIT
         if (_engine.NetworkSession.IsConnected)
@@ -885,6 +894,7 @@ public class GameScene : IScene
             {
                 int damage = Random.Shared.Next(18, 32); // 挥砍基础物理伤害
                 target.TakeDamage(damage);
+                SoundManager.Instance.Play(SoundEffectType.MonsterStruck);
                 if (_monsterAis.TryGetValue(target.RecogId, out var ai))
                 {
                     ai.OnDamaged(damage);
@@ -942,6 +952,7 @@ public class GameScene : IScene
         {
             case SkillType.ThunderBolt:
             {
+                SoundManager.Instance.Play(SoundEffectType.Thunder);
                 MapEntity? target = FindNearestMonster(frontTile, 6f);
                 Vector2 strikePos = target != null ? target.TilePos : _playerTilePos + (_direction switch
                 {
@@ -968,6 +979,7 @@ public class GameScene : IScene
 
             case SkillType.FireSword:
             {
+                SoundManager.Instance.Play(SoundEffectType.FireSword);
                 _skillFx.SpawnFireSword(frontTile, _direction);
                 _chatLogs.Add($"[武技] 挥出烈火剑法，极度炙热的烈焰剑气撕裂空气！");
 
@@ -986,6 +998,7 @@ public class GameScene : IScene
 
             case SkillType.Healing:
             {
+                SoundManager.Instance.Play(SoundEffectType.Heal);
                 _skillFx.SpawnHealing(_playerTilePos);
                 int heal = 60;
                 _hp = Math.Clamp(_hp + heal, 0, MAX_HP);
@@ -995,6 +1008,7 @@ public class GameScene : IScene
 
             case SkillType.Fireball:
             {
+                SoundManager.Instance.Play(SoundEffectType.Fireball);
                 MapEntity? target = FindNearestMonster(frontTile, 6f);
                 Vector2 targetPos = target != null ? target.TilePos : _playerTilePos + (_direction switch
                 {
@@ -1049,6 +1063,7 @@ public class GameScene : IScene
 
     private void HandleMonsterKill(MapEntity target)
     {
+        SoundManager.Instance.Play(SoundEffectType.MonsterDie);
         int expGain = target.Name switch
         {
             "白野猪" => 1200,
@@ -1067,6 +1082,7 @@ public class GameScene : IScene
             _hp = MaxHp;
             _mp = MaxMp;
             _skillFx.SpawnLevelUp(_playerTilePos);
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
             _chatLogs.Add($"[升级] ★★★ 恭喜侠士！境界突破升至【{_progression.Level}级】！生命与魔法上限增长，全状态恢复满盈！ ★★★");
         }
 
@@ -1095,6 +1111,7 @@ public class GameScene : IScene
         _currentAction = HumanActionType.Struck;
         _motionStep = 0;
         _actionTimer = 0f;
+        SoundManager.Instance.Play(SoundEffectType.PlayerStruck);
     }
 
     private void DrawPlayer(Vector2 center)
@@ -1650,11 +1667,34 @@ public class GameScene : IScene
                     _hp = MaxHp;
                     _mp = MaxMp;
                     _skillFx.SpawnLevelUp(_playerTilePos);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
                     _chatLogs.Add($"[GM] 注入经验 +{cmd.Amount}！境界突破升至【{_progression.Level}级】！");
                 }
                 else
                 {
                     _chatLogs.Add($"[GM] 注入经验 +{cmd.Amount}！当前经验: {_progression.CurrentExp}/{_progression.RequiredExp} ({_progression.ExpPercent:P1})");
+                }
+                break;
+
+            case ParsedCommandType.Mute:
+                SoundManager.Instance.ToggleMute();
+                _chatLogs.Add($"[系统] 音频状态已切换为: {(SoundManager.Instance.IsMuted ? "【静音】" : $"【已开启 (音量 {SoundManager.Instance.Volume}%)】")}");
+                break;
+
+            case ParsedCommandType.Sound:
+                SoundManager.Instance.SetVolume(cmd.Amount);
+                _chatLogs.Add($"[系统] 主音量已调整为: {SoundManager.Instance.Volume}%");
+                break;
+
+            case ParsedCommandType.Play:
+                if (Enum.TryParse<SoundEffectType>(cmd.TargetName, true, out var sfx))
+                {
+                    SoundManager.Instance.Play(sfx);
+                    _chatLogs.Add($"[系统] 播放音效: {sfx}");
+                }
+                else
+                {
+                    _chatLogs.Add($"[系统] 未知音效名称: {cmd.TargetName}。支持音效: {string.Join(", ", Enum.GetNames<SoundEffectType>())}");
                 }
                 break;
 
@@ -2061,6 +2101,7 @@ public class GameScene : IScene
                                 {
                                     _hp = Math.Min(MAX_HP, _hp + hp);
                                     _mp = Math.Min(MAX_MP, _mp + mp);
+                                    SoundManager.Instance.Play(SoundEffectType.UsePotion);
                                     _chatLogs.Add($"[使用] 服用【{item.Name}】，生命恢复+{hp}，魔法恢复+{mp}！");
                                 }
                             }
@@ -2071,6 +2112,7 @@ public class GameScene : IScene
                                 if (_inv.EquipItem(i))
                                 {
                                     SyncEquippedAppearance();
+                                    SoundManager.Instance.Play(SoundEffectType.PickupItem);
                                     _chatLogs.Add($"[换装] 穿戴了【{eqName}】！纸娃娃模型实时更新。");
                                 }
                             }

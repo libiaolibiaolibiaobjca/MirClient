@@ -96,6 +96,21 @@ public class CommandParserTests
     }
 
     [Fact]
+    public void TestParse_AudioCommands()
+    {
+        var cmdMute = CommandParser.Parse("@mute");
+        Assert.Equal(ParsedCommandType.Mute, cmdMute.Type);
+
+        var cmdSound = CommandParser.Parse("@sound 65");
+        Assert.Equal(ParsedCommandType.Sound, cmdSound.Type);
+        Assert.Equal(65, cmdSound.Amount);
+
+        var cmdPlay = CommandParser.Parse("@play gold");
+        Assert.Equal(ParsedCommandType.Play, cmdPlay.Type);
+        Assert.Equal(SoundEffectType.PickupGold, cmdPlay.TargetSound);
+    }
+
+    [Fact]
     public void TestParse_ChatAndHelp()
     {
         // 普通公屏消息

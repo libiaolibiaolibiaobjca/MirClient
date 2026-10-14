@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Raylib_cs;
 using MirClient.Protocol;
 using MirClient.Protocol.Network;
+using MirClient.Runner.Audio;
 using MirClient.Runner.Graphics;
 using MirClient.Runner.Scenes;
 
@@ -40,6 +41,9 @@ public class GameEngine : IDisposable
 
         // 初始化中文字体系统 (消除豆腐块乱码)
         FontManager.Initialize();
+
+        // 初始化原生硬件音频桥接设备
+        AudioBridge.Initialize();
 
         _isRunning = true;
         _currentScene.Init();
@@ -101,6 +105,11 @@ public class GameEngine : IDisposable
         NetworkSession.Dispose();
         TextureManager.UnloadAll();
         FontManager.Dispose();
+        AudioBridge.Dispose();
+        if (Raylib.IsAudioDeviceReady())
+        {
+            Raylib.CloseAudioDevice();
+        }
         Raylib.CloseWindow();
     }
 
