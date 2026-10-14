@@ -17,6 +17,7 @@ public enum ParsedCommandType
     Sound,      // @sound 音量(0~100)
     Play,       // @play 试听音效
     Map,        // @map 地图名/ID [X] [Y]
+    Protect,    // @protect on/off [阈值%]
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -28,6 +29,7 @@ public class ParsedCommand
     public string Message { get; set; } = "";
     public Item? CreatedItem { get; set; }
     public int Amount { get; set; }
+    public bool Enabled { get; set; } = true;
     public string TargetName { get; set; } = "";
     public Vector2 TargetTile { get; set; }
     public SoundEffectType? TargetSound { get; set; }
@@ -369,6 +371,44 @@ public static class CommandParser
                 };
             }
 
+            case "protect":
+            case "保护":
+            case "守护":
+            case "内挂":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @protect <on/off> [阈值%] (例如: @protect on 40, @protect off)"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                bool enable = sub != "off" && sub != "关" && sub != "关闭" && sub != "0";
+                int threshold = 35;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int t))
+                {
+                    threshold = Math.Clamp(t, 10, 90);
+                }
+                else if (int.TryParse(parts[1], out int directT))
+                {
+                    enable = true;
+                    threshold = Math.Clamp(directT, 10, 90);
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Protect,
+                    RawInput = input,
+                    Enabled = enable,
+                    Amount = threshold,
+                    Message = enable ? $"智能生命保护已开启，危急阈值: {threshold}%" : "智能生命保护已关闭"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -379,11 +419,12 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
-                              "  @make <物品名> [数量] - 刷取神装或药水 (如 @make 裁决之杖)\n" +
+                              "  @make <物品名> [数量] - 刷取神装或药水 (如 @make 裁决之杖, @make 强效太阳水)\n" +
                               "  @gold <数值>          - 充值随身金币 (如 @gold 100000)\n" +
                               "  @mob <怪物名>         - 眼前刷怪 (如 @mob 白野猪)\n" +
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
                               "  @map <地图名/ID> [X Y]- 跨地图自由穿梭 (如 @map 兽人古墓, @map 3)\n" +
+                              "  @protect <on/off> [HP%]- 智能生命守护/秒喝药设置 (如 @protect on 40)\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
                               "  @exp <数值>           - 注入经验值 (如 @exp 10000)\n" +
                               "  @cd                   - 一键清空所有技能冷却\n" +
@@ -418,6 +459,7 @@ public static class CommandParser
             "战神" or "战神盔甲" or "战神盔甲(男)" => Item.CreateGodArmor(),
             "金创药" or "红药" or "金创药(小包)" => Item.CreateRedPotion(count),
             "魔法药" or "蓝药" or "魔法药(小包)" => Item.CreateBluePotion(count),
+            "太阳水" or "强效太阳水" => Item.CreateSunPotion(count),
             _ => null
         };
     }

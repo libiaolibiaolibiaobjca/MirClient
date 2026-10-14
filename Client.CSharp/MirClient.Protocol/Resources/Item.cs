@@ -145,4 +145,15 @@ public class Item
         Weight = 2,
         Count = count
     };
+
+    public static Item CreateSunPotion(int count = 5) => new()
+    {
+        Id = 22,
+        Name = "强效太阳水",
+        Type = ItemType.Potion,
+        HpRestore = 60,
+        MpRestore = 60,
+        Weight = 2,
+        Count = count
+    };
 }

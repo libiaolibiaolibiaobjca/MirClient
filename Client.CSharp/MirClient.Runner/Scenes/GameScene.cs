@@ -144,7 +144,8 @@ public class GameScene : IScene
 
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
-        _chatLogs.Add("[系统] 技能法术: [1/F1] 雷电术；[2/F2] 烈火剑法；[3/F3] 治愈术；[4/F4] 火球术 (支持点击底板快捷槽施法)。");
+        _chatLogs.Add("[系统] 快捷法术: [F1] 雷电术；[F2] 烈火剑法；[F3] 治愈术；[F4] 火球术 (点击法术图标施法)。");
+        _chatLogs.Add("[系统] 快捷腰带: 数字键 [1~6] 或鼠标点击快捷使用药水；智能生命保护已激活 (@protect 查看/设置)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -218,26 +219,50 @@ public class GameScene : IScene
             Console.WriteLine($"[色彩切换] {modeDesc}");
         }
 
-        // 战斗交互与热键 (1~4 与 F1~F4 技能法术)
+        // 战斗交互与热键 (空格攻击, F1~F4 技能, 1~6 快捷腰带嗑药)
         if (Raylib.IsKeyPressed(KeyboardKey.Space) || (Raylib.IsKeyDown(KeyboardKey.LeftShift) && Raylib.IsMouseButtonPressed(MouseButton.Left)))
         {
             TriggerAttack();
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.One) || Raylib.IsKeyPressed(KeyboardKey.F1))
+        else if (Raylib.IsKeyPressed(KeyboardKey.F1))
         {
             CastSkill(SkillType.ThunderBolt);
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.Two) || Raylib.IsKeyPressed(KeyboardKey.F2))
+        else if (Raylib.IsKeyPressed(KeyboardKey.F2))
         {
             CastSkill(SkillType.FireSword);
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.Three) || Raylib.IsKeyPressed(KeyboardKey.F3))
+        else if (Raylib.IsKeyPressed(KeyboardKey.F3))
         {
             CastSkill(SkillType.Healing);
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.Four) || Raylib.IsKeyPressed(KeyboardKey.F4))
+        else if (Raylib.IsKeyPressed(KeyboardKey.F4))
         {
             CastSkill(SkillType.Fireball);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.One))
+        {
+            UseBeltPotion(0);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Two))
+        {
+            UseBeltPotion(1);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Three))
+        {
+            UseBeltPotion(2);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Four))
+        {
+            UseBeltPotion(3);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Five))
+        {
+            UseBeltPotion(4);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Six))
+        {
+            UseBeltPotion(5);
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.H))
         {
@@ -453,6 +478,15 @@ public class GameScene : IScene
         if (_mapBannerTimer > 0f)
         {
             _mapBannerTimer = MathF.Max(0f, _mapBannerTimer - dt);
+        }
+
+        // 智能生命守护 (危机自动秒喝救急药)
+        if (_hp > 0 && BeltManager.Instance.CheckAutoProtect(_hp, MAX_HP, _inv, Raylib.GetTime(), out int pHeal, out int mHeal, out string pName))
+        {
+            _hp = Math.Min(MAX_HP, _hp + pHeal);
+            _mp = Math.Min(MAX_MP, _mp + mHeal);
+            SoundManager.Instance.Play(SoundEffectType.UsePotion);
+            _chatLogs.Add($"[智能守护] ★★★ 生命危急 (< {(int)(BeltManager.Instance.ProtectHpPercent * 100)}%)！自动服用【{pName}】恢复生命+{pHeal}！ ★★★");
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
@@ -1472,7 +1506,61 @@ public class GameScene : IScene
             }
         }
 
-        // 2. 底板右下角原生雕花红宝石大圆钮交互（移除突兀的纯黑矩形，100% 依托原生贴图浮雕）
+        // 2. 经典 1 ~ 6 底栏快捷腰带 (支持按键 1~6 或鼠标点击瞬间嗑药)
+        int beltSize = 28;
+        int beltSpacing = 4;
+        int beltStartX = boardX + 504;
+        int beltY = boardY + 54;
+
+        for (int i = 0; i < BeltManager.SLOT_COUNT; i++)
+        {
+            int bx = beltStartX + i * (beltSize + beltSpacing);
+            Rectangle bRect = new(bx, beltY, beltSize, beltSize);
+            bool bHover = Raylib.CheckCollisionPointRec(mousePos, bRect);
+
+            string pName = BeltManager.Instance.GetSlotPotion(i);
+            int count = BeltManager.Instance.GetTotalPotionCount(i, _inv);
+
+            Raylib.DrawRectangleRec(bRect, bHover ? new Color(50, 42, 30, 240) : new Color(24, 20, 16, 220));
+            Raylib.DrawRectangleLinesEx(bRect, 1, bHover ? Color.Gold : (count > 0 ? new Color(110, 95, 50, 200) : new Color(60, 50, 35, 180)));
+
+            // 槽位按键标号 1~6
+            FontManager.DrawText($"{i + 1}", bx + 2, beltY + 1, 9, bHover ? Color.Yellow : Color.Orange);
+
+            // 药品品名简写
+            string shortName = pName switch
+            {
+                var s when s.Contains("太阳") => "太阳",
+                var s when s.Contains("金创") => "金创",
+                var s when s.Contains("魔法") => "魔药",
+                _ => pName.Length > 2 ? pName.Substring(0, 2) : pName
+            };
+
+            Color pColor = pName.Contains("太阳") ? Color.Gold : (pName.Contains("金创") ? Color.Pink : Color.SkyBlue);
+            int nameW = FontManager.MeasureText(shortName, 10);
+            FontManager.DrawText(shortName, bx + (beltSize - nameW) / 2, beltY + 10, 10, count > 0 ? pColor : Color.DarkGray);
+
+            // 右下角存量角标
+            string cntStr = count > 99 ? "99+" : $"{count}";
+            FontManager.DrawText(cntStr, bx + beltSize - 12, beltY + beltSize - 10, 9, count > 0 ? Color.Lime : Color.Gray);
+
+            // 鼠标悬停提示
+            if (bHover)
+            {
+                string tip = $"【{i + 1}号快捷栏】{pName} (包裹余量: {count}) [按键 {i + 1} 或点击使用]";
+                int tipW = FontManager.MeasureText(tip, 11);
+                Raylib.DrawRectangle(bx - 10, beltY - 20, tipW + 12, 16, new Color(10, 10, 10, 230));
+                Raylib.DrawRectangleLines(bx - 10, beltY - 20, tipW + 12, 16, Color.Gold);
+                FontManager.DrawText(tip, bx - 6, beltY - 18, 11, Color.Yellow);
+
+                if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    UseBeltPotion(i);
+                }
+            }
+        }
+
+        // 3. 底板右下角原生雕花红宝石大圆钮交互（移除突兀的纯黑矩形，100% 依托原生贴图浮雕）
         // 4 个经典大圆钮依次为：包裹、状态、行会、退出
         (string name, int centerX, int centerY, Action action)[] nativeButtons =
         {
@@ -1728,6 +1816,15 @@ public class GameScene : IScene
 
             case ParsedCommandType.Map:
                 ExecuteMapTransition(cmd.TargetName, cmd.TargetTile != Vector2.Zero ? cmd.TargetTile : null, "GM时空穿梭指令");
+                break;
+
+            case ParsedCommandType.Protect:
+                BeltManager.Instance.IsAutoProtectEnabled = cmd.Enabled;
+                if (cmd.Amount > 0)
+                {
+                    BeltManager.Instance.ProtectHpPercent = cmd.Amount / 100f;
+                }
+                _chatLogs.Add($"[系统] {cmd.Message}");
                 break;
 
             case ParsedCommandType.Help:
@@ -2698,5 +2795,24 @@ public class GameScene : IScene
         _currentAction = HumanActionType.Stand;
         _motionStep = 0;
         _chatLogs.Add($"[复活] 祈祷神光自虚空降临，您已在【{MapManager.Instance.ActiveMap.Name}安全区】满血复活！");
+    }
+
+    private void UseBeltPotion(int slotIndex)
+    {
+        if (BeltManager.Instance.UseSlot(slotIndex, _inv, out int hpHeal, out int mpHeal, out string usedName))
+        {
+            _hp = Math.Min(MAX_HP, _hp + hpHeal);
+            _mp = Math.Min(MAX_MP, _mp + mpHeal);
+            SoundManager.Instance.Play(SoundEffectType.UsePotion);
+            _chatLogs.Add($"[快捷嗑药] 服用【{usedName}】，生命恢复+{hpHeal}，魔法恢复+{mpHeal}！(当前 HP: {(int)_hp}/{(int)MAX_HP})");
+        }
+        else
+        {
+            string target = BeltManager.Instance.GetSlotPotion(slotIndex);
+            if (!string.IsNullOrEmpty(target))
+            {
+                _chatLogs.Add($"[快捷嗑药] 包裹中暂无【{target}】！按 F9 打开包裹查看物品。");
+            }
+        }
     }
 }

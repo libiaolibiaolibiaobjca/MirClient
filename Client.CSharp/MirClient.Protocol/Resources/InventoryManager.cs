@@ -58,6 +58,7 @@ public class InventoryManager
         AddItem(Item.CreateGodArmor());      // 战神盔甲
         AddItem(Item.CreateRedPotion(8));    // 金创药 x 8
         AddItem(Item.CreateBluePotion(6));   // 魔法药 x 6
+        AddItem(Item.CreateSunPotion(12));   // 强效太阳水 x 12
     }
 
     private int GetEquippedSum(Func<Item, int> selector)
