@@ -48,6 +48,7 @@ public class GameScene : IScene
     private bool _showBag = false;
     private bool _showEquip = false;
     private bool _showGroupWindow = false;
+    private bool _showGuildWindow = false;
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -145,12 +146,14 @@ public class GameScene : IScene
 
         DeathManager.Instance.Reset();
         GroupManager.Instance.Reset();
+        GuildManager.Instance.Reset();
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 快捷法术: [F1] 雷电术；[F2] 烈火剑法；[F3] 治愈术；[F4] 火球术 (点击法术图标施法)。");
         _chatLogs.Add("[系统] 快捷腰带: 数字键 [1~6] 或鼠标点击快捷使用药水；智能生命保护已激活 (@protect 查看/设置)。");
         _chatLogs.Add("[系统] 阵亡重生: 角色阵亡进入经典黑白屏，按空格/回车回城复活 (@kill/@revive 测试)。");
         _chatLogs.Add("[系统] 组队协同: 按 [P] 键开启组队面板与左侧浮窗，享有 120% 组队经验加成 (@group)。");
+        _chatLogs.Add("[系统] 行会争霸: 按 [G] 键开启行会面板，头顶渲染双层尊贵行会称号 (@guild)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -322,6 +325,13 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.P))
         {
             _showGroupWindow = !_showGroupWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // G: 开关行会面板
+        if (Raylib.IsKeyPressed(KeyboardKey.G))
+        {
+            _showGuildWindow = !_showGuildWindow;
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
@@ -700,6 +710,12 @@ public class GameScene : IScene
         if (_showGroupWindow)
         {
             RenderGroupWindow(screenW, screenH);
+        }
+
+        // 5.3 渲染 G 键行会管理面板
+        if (_showGuildWindow)
+        {
+            RenderGuildWindow(screenW, screenH);
         }
 
         // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
@@ -1282,6 +1298,14 @@ public class GameScene : IScene
         float hpRate = Math.Clamp(_hp / MAX_HP, 0f, 1f);
         Raylib.DrawRectangle(hpBarX, hpBarY, (int)(hpBarW * hpRate), hpBarH, Color.Green);
         Raylib.DrawRectangleLines(hpBarX, hpBarY, hpBarW, hpBarH, Color.Gold);
+
+        // 盛大原版经典双层头顶排版：第一行金色行会称号，第二行角色名，第三行生命血条
+        string guildTitle = GuildManager.Instance.GetTitleForPlayer(_playerName);
+        if (!string.IsNullOrEmpty(guildTitle))
+        {
+            int titleW = FontManager.MeasureText(guildTitle, 11);
+            FontManager.DrawTextWithShadow(guildTitle, (int)(center.X - titleW / 2f), headY - 32, 11, Color.Gold, Color.Black);
+        }
 
         string name = _playerName;
         int nameW = FontManager.MeasureText(name, 12);
@@ -1918,6 +1942,59 @@ public class GameScene : IScene
                     else
                     {
                         _chatLogs.Add($"[组队] 无法添加【{cmd.TargetName}】(可能已满员或已在队伍中)。");
+                    }
+                }
+                break;
+
+            case ParsedCommandType.Guild:
+                if (cmd.SubAction == "create")
+                {
+                    if (GuildManager.Instance.CreateGuild(cmd.TargetName, _playerName, CharacterJob.Warrior, _progression.Level))
+                    {
+                        _chatLogs.Add($"[行会] 恭喜！您成功创建了行会【{cmd.TargetName}】，荣登行会长宝座！");
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
+                else if (cmd.SubAction == "leave")
+                {
+                    GuildManager.Instance.LeaveGuild();
+                    _chatLogs.Add("[行会] 您已退出行会，称号已卸下。");
+                }
+                else if (cmd.SubAction == "kick")
+                {
+                    if (GuildManager.Instance.RemoveMember(cmd.TargetName))
+                    {
+                        _chatLogs.Add($"[行会] 成员【{cmd.TargetName}】已被逐出行会。");
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[行会] 未在行会中找到成员【{cmd.TargetName}】！");
+                    }
+                }
+                else if (cmd.SubAction == "rank")
+                {
+                    if (GuildManager.Instance.SetMemberRank(_playerName, cmd.TargetRank))
+                    {
+                        _chatLogs.Add($"[行会] 自身职务已变更为: 【{cmd.TargetRank}】，头顶称号已更新！");
+                    }
+                    else
+                    {
+                        _chatLogs.Add("[行会] 调整职务失败，可能尚未加入任何行会。");
+                    }
+                }
+                else if (cmd.SubAction == "add")
+                {
+                    if (!GuildManager.Instance.HasGuild)
+                    {
+                        GuildManager.Instance.CreateGuild("傲视天下", _playerName, CharacterJob.Warrior, _progression.Level);
+                    }
+                    if (GuildManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, cmd.TargetRank))
+                    {
+                        _chatLogs.Add($"[行会] 招纳成员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob} [{cmd.TargetRank}]) 入会！");
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[行会] 招纳成员失败(可能已满员或已在行会中)。");
                     }
                 }
                 break;
@@ -3161,5 +3238,168 @@ public class GameScene : IScene
         // 组队加成说明
         string tip = "★ 组队打怪享有 120% 经验池加成并由全员共享";
         FontManager.DrawTextWithShadow(tip, winX + 14, winY + winH - 30, 11, Color.Gold, Color.Black);
+    }
+
+    private void RenderGuildWindow(int screenW, int screenH)
+    {
+        int winW = 340;
+        int winH = 390;
+        int winX = 320;
+        int winY = 80;
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 窗口背景与复古暗金边框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(20, 18, 18, 248));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, new Color(180, 140, 50, 255));
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 26, new Color(50, 40, 25, 255));
+
+        // 标题栏
+        string title = "【 玛法行会与沙城争霸 】";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 6, 14, Color.Gold, Color.Black);
+
+        // 关闭 [X] 按钮
+        Rectangle closeBtn = new(winX + winW - 24, winY + 4, 18, 18);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(160, 40, 40, 255) : new Color(80, 40, 40, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 20, winY + 6, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showGuildWindow = false;
+        }
+
+        // 行会概况概要区
+        int infoY = winY + 34;
+        bool inGuild = GuildManager.Instance.HasGuild;
+        string gName = inGuild ? $"【{GuildManager.Instance.GuildName}】" : "【暂无行会】";
+        FontManager.DrawTextWithShadow($"行会: {gName}", winX + 12, infoY, 13, inGuild ? Color.Gold : Color.Gray, Color.Black);
+
+        string leaderName = GuildManager.Instance.Leader?.Name ?? "无";
+        FontManager.DrawTextWithShadow($"会长: {leaderName}  (人数: {GuildManager.Instance.Members.Count}/100)", winX + 12, infoY + 18, 11, Color.LightGray, Color.Black);
+
+        // 公告栏
+        int noticeY = infoY + 36;
+        Raylib.DrawRectangle(winX + 10, noticeY, winW - 20, 26, new Color(30, 26, 22, 230));
+        Raylib.DrawRectangleLines(winX + 10, noticeY, winW - 20, 26, new Color(90, 75, 45, 200));
+        FontManager.DrawTextWithShadow($"公告: {GuildManager.Instance.Notice}", winX + 14, noticeY + 6, 11, Color.Yellow, Color.Black);
+
+        // 成员名录列表区域
+        int listY = noticeY + 32;
+        int listH = 200;
+        Raylib.DrawRectangle(winX + 10, listY, winW - 20, listH, new Color(15, 14, 16, 235));
+        Raylib.DrawRectangleLines(winX + 10, listY, winW - 20, listH, new Color(70, 65, 60, 200));
+
+        var members = GuildManager.Instance.Members;
+        if (!inGuild || members.Count == 0)
+        {
+            string emptyMsg = "您尚未加入任何行会！\n点击下方按钮创立行会或输入 @guild 指令加入。";
+            FontManager.DrawTextWithShadow(emptyMsg, winX + 45, listY + 80, 12, Color.Gray, Color.Black);
+        }
+        else
+        {
+            int itemY = listY + 6;
+            bool amILeader = GuildManager.Instance.Leader?.Name == _playerName;
+
+            for (int i = 0; i < members.Count; i++)
+            {
+                var m = members[i];
+                Color rankCol = m.Rank switch
+                {
+                    GuildRank.Leader     => Color.Gold,
+                    GuildRank.ViceLeader => Color.Orange,
+                    GuildRank.Elder      => new Color(100, 200, 255, 255),
+                    GuildRank.Elite      => new Color(130, 255, 160, 255),
+                    _                    => Color.LightGray
+                };
+
+                string mText = $"[{m.RankTitle}] {m.Name} (Lv.{m.Level} {m.JobName})";
+                FontManager.DrawTextWithShadow(mText, winX + 14, itemY, 12, rankCol, Color.Black);
+
+                // 会长逐出按钮
+                if (amILeader && m.Name != _playerName)
+                {
+                    Rectangle kickBtn = new(winX + winW - 55, itemY - 1, 38, 16);
+                    bool kickHover = Raylib.CheckCollisionPointRec(mousePos, kickBtn);
+                    Raylib.DrawRectangleRec(kickBtn, kickHover ? new Color(180, 40, 40, 255) : new Color(80, 30, 30, 200));
+                    FontManager.DrawTextWithShadow("逐出", winX + winW - 47, itemY + 1, 10, Color.White, Color.Black);
+
+                    if (kickHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        GuildManager.Instance.RemoveMember(m.Name);
+                        _chatLogs.Add($"[行会] 已将成员【{m.Name}】逐出行会。");
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        break;
+                    }
+                }
+
+                itemY += 20;
+            }
+        }
+
+        // 底部功能按钮栏
+        int btnY = winY + winH - 52;
+        if (!inGuild)
+        {
+            Rectangle createBtn = new(winX + 20, btnY, 300, 28);
+            bool createHover = Raylib.CheckCollisionPointRec(mousePos, createBtn);
+            Raylib.DrawRectangleRec(createBtn, createHover ? new Color(160, 120, 40, 255) : new Color(80, 60, 25, 230));
+            Raylib.DrawRectangleLines(winX + 20, btnY, 300, 28, createHover ? Color.Yellow : Color.Gold);
+            FontManager.DrawTextWithShadow("创立行会【傲视天下】(自任会长)", winX + 60, btnY + 7, 12, createHover ? Color.Yellow : Color.White, Color.Black);
+
+            if (createHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                GuildManager.Instance.CreateGuild("傲视天下", _playerName, CharacterJob.Warrior, _progression.Level);
+                _chatLogs.Add("[行会] 恭喜！您成功创建了行会【傲视天下】，头顶金色行会长称号已生效！");
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        }
+        else
+        {
+            Rectangle addBotBtn = new(winX + 16, btnY, 145, 26);
+            bool addHover = Raylib.CheckCollisionPointRec(mousePos, addBotBtn);
+            Raylib.DrawRectangleRec(addBotBtn, addHover ? new Color(70, 90, 130, 255) : new Color(40, 50, 70, 220));
+            Raylib.DrawRectangleLines(winX + 16, btnY, 145, 26, addHover ? Color.Gold : Color.SkyBlue);
+            FontManager.DrawTextWithShadow("+ 招纳模拟帮众", winX + 36, btnY + 6, 12, addHover ? Color.Yellow : Color.White, Color.Black);
+
+            if (addHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                int currentCount = GuildManager.Instance.Members.Count;
+                string botName = currentCount switch
+                {
+                    1 => "烈火法神",
+                    2 => "无极道圣",
+                    3 => "雷霆狂战",
+                    4 => "幽冥法尊",
+                    _ => $"沙城义士{currentCount}"
+                };
+                CharacterJob botJob = (CharacterJob)(currentCount % 3);
+                GuildRank botRank = currentCount switch
+                {
+                    1 => GuildRank.ViceLeader,
+                    2 => GuildRank.Elder,
+                    3 => GuildRank.Elite,
+                    _ => GuildRank.Member
+                };
+
+                if (GuildManager.Instance.AddMember(botName, botJob, 35 + currentCount, botRank))
+                {
+                    _chatLogs.Add($"[行会] 帮众【{botName}】(Lv.{35 + currentCount} {botJob} [{botRank}]) 加入了行会！");
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+            }
+
+            Rectangle leaveBtn = new(winX + 175, btnY, 145, 26);
+            bool leaveHover = Raylib.CheckCollisionPointRec(mousePos, leaveBtn);
+            Raylib.DrawRectangleRec(leaveBtn, leaveHover ? new Color(140, 50, 50, 255) : new Color(70, 30, 30, 220));
+            Raylib.DrawRectangleLines(winX + 175, btnY, 145, 26, leaveHover ? Color.Gold : new Color(205, 92, 92, 255));
+            FontManager.DrawTextWithShadow("退出 / 解散行会", winX + 195, btnY + 6, 12, leaveHover ? Color.Yellow : Color.White, Color.Black);
+
+            if (leaveHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                GuildManager.Instance.LeaveGuild();
+                _chatLogs.Add("[行会] 您已退出行会，头顶行会称号已卸下。");
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            }
+        }
     }
 }

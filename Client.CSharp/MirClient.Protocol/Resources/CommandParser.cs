@@ -21,6 +21,7 @@ public enum ParsedCommandType
     Kill,       // @kill 角色阵亡自尽测试
     Revive,     // @revive 原地神圣复活
     Group,      // @group 组队管理与模拟队员
+    Guild,      // @guild 行会与称号管理
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -38,6 +39,7 @@ public class ParsedCommand
     public SoundEffectType? TargetSound { get; set; }
     public string SubAction { get; set; } = "";
     public CharacterJob TargetJob { get; set; } = CharacterJob.Warrior;
+    public GuildRank TargetRank { get; set; } = GuildRank.Member;
 }
 
 /// <summary>
@@ -531,6 +533,134 @@ public static class CommandParser
                 };
             }
 
+            case "guild":
+            case "行会":
+            case "帮会":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法:\n" +
+                                  "  @guild create <行会名称>                        - 创建新行会并自任会长\n" +
+                                  "  @guild add <名字> [等级] [职业] [职务]         - 招募成员\n" +
+                                  "  @guild rank <会长/副会长/堂主/精英/帮众>       - 调整自身职务\n" +
+                                  "  @guild kick <名字>                             - 逐出成员\n" +
+                                  "  @guild leave                                   - 退出/解散行会"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                if (sub == "leave" || sub == "退会" || sub == "解散")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "leave",
+                        Message = "您已退出行会，行会关系已解除。"
+                    };
+                }
+                else if (sub == "kick" || sub == "逐出" || sub == "开除")
+                {
+                    string targetName = parts.Length >= 3 ? parts[2] : "";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "kick",
+                        TargetName = targetName,
+                        Message = $"已将【{targetName}】逐出行会。"
+                    };
+                }
+                else if (sub == "create" || sub == "创建" || sub == "建会")
+                {
+                    string gName = parts.Length >= 3 ? parts[2] : "傲视天下";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "create",
+                        TargetName = gName,
+                        Message = $"成功创立行会【{gName}】！"
+                    };
+                }
+                else if (sub == "rank" || sub == "职务" || sub == "称号")
+                {
+                    string rankStr = parts.Length >= 3 ? parts[2] : "堂主";
+                    GuildRank r = rankStr switch
+                    {
+                        "会长" or "0" => GuildRank.Leader,
+                        "副会长" or "1" => GuildRank.ViceLeader,
+                        "堂主" or "2" => GuildRank.Elder,
+                        "精英" or "3" => GuildRank.Elite,
+                        _ => GuildRank.Member
+                    };
+
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "rank",
+                        TargetRank = r,
+                        Message = $"自身行会职务已调整为: 【{r}】"
+                    };
+                }
+                else if (sub == "add" || sub == "招纳" || sub == "招募")
+                {
+                    string targetName = parts.Length >= 3 ? parts[2] : "沙巴克霸主";
+                    int level = 40;
+                    CharacterJob job = CharacterJob.Warrior;
+                    GuildRank rank = GuildRank.Member;
+
+                    if (parts.Length >= 4 && int.TryParse(parts[3], out int parsedLvl))
+                    {
+                        level = Math.Clamp(parsedLvl, 1, 99);
+                    }
+
+                    if (parts.Length >= 5)
+                    {
+                        string jobStr = parts[4].ToLowerInvariant();
+                        if (jobStr.Contains("法") || jobStr == "wizard" || jobStr == "1") job = CharacterJob.Wizard;
+                        else if (jobStr.Contains("道") || jobStr == "taoist" || jobStr == "2") job = CharacterJob.Taoist;
+                        else job = CharacterJob.Warrior;
+                    }
+
+                    if (parts.Length >= 6)
+                    {
+                        string rankStr = parts[5];
+                        rank = rankStr switch
+                        {
+                            "副会长" => GuildRank.ViceLeader,
+                            "堂主" => GuildRank.Elder,
+                            "精英" => GuildRank.Elite,
+                            _ => GuildRank.Member
+                        };
+                    }
+
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "add",
+                        TargetName = targetName,
+                        Amount = level,
+                        TargetJob = job,
+                        TargetRank = rank,
+                        Message = $"招募行会成员【{targetName}】(Lv.{level} {job} [{rank}])！"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Unknown,
+                    RawInput = input,
+                    Message = $"未知行会子指令【{parts[1]}】！可选: create, add, rank, kick, leave"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -549,6 +679,9 @@ public static class CommandParser
                               "  @protect <on/off> [HP%]- 智能生命守护/秒喝药设置 (如 @protect on 40)\n" +
                               "  @group add <名> [级] [职业] - 模拟添加队友 (如 @group add 烈火法神 38 法师)\n" +
                               "  @group leave          - 退出/解散当前队伍\n" +
+                              "  @guild create <行会名>- 创立行会 (如 @guild create 傲视天下)\n" +
+                              "  @guild rank <职务>    - 变更职务 (如 @guild rank 堂主)\n" +
+                              "  @guild add <名> [级] [职] [阶] - 招募帮众 (如 @guild add 霸天虎 40 战士 堂主)\n" +
                               "  @kill                 - 角色自尽测试黑白死亡屏\n" +
                               "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
