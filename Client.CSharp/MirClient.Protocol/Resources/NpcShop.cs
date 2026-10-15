@@ -99,6 +99,8 @@ public class NpcProfile
             new("[拜师学艺 (28级以下)]", "@master_menu"),
             new("[招收门徒 (35级或已出师)]", "@apprentice_menu"),
             new("[武馆出师典礼 (徒弟35级)]", "@graduate_ceremony"),
+            new("[圣域荣誉勋章声望兑换]", "@badge_exchange"),
+            new("[勋章圣域灵火极品重铸]", "@badge_reforge"),
             new("[师门与声望名录 (按 F 键)]", "@social_info"),
             new("[离开]", "@close")
         }

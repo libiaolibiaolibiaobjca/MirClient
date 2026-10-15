@@ -2421,6 +2421,50 @@ public class GameScene : IScene
                 break;
             }
 
+            case ParsedCommandType.Badge:
+            {
+                if (cmd.SubAction == "exchange" || cmd.SubAction == "兑换")
+                {
+                    int rep = SocialManager.Instance.Reputation;
+                    var res = BadgeManager.Instance.ExchangeBadge(_inv, cmd.Amount, ref rep);
+                    _chatLogs.Add(res.Message);
+                    if (res.Success)
+                    {
+                        int consumed = SocialManager.Instance.Reputation - rep;
+                        SocialManager.Instance.ConsumeReputation(consumed);
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
+                else if (cmd.SubAction == "reforge" || cmd.SubAction == "重铸" || cmd.SubAction == "洗炼")
+                {
+                    var eqBadge = _inv.EquippedItems[(int)EquipSlot.Badge];
+                    if (eqBadge == null)
+                    {
+                        _chatLogs.Add("[圣域重铸] 您当前尚未佩戴任何荣誉勋章！请先在 F10 界面佩戴勋章。");
+                    }
+                    else
+                    {
+                        int rep = SocialManager.Instance.Reputation;
+                        var res = BadgeManager.Instance.ReforgeBadge(eqBadge, ref rep);
+                        _chatLogs.Add(res.Message);
+                        if (res.Success)
+                        {
+                            int consumed = SocialManager.Instance.Reputation - rep;
+                            SocialManager.Instance.ConsumeReputation(consumed);
+                            _skillFx.SpawnLevelUp(_playerTilePos);
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        }
+                    }
+                }
+                else
+                {
+                    _showEquip = true; // 自动呼出 F10 查看勋章
+                    _chatLogs.Add($"[荣誉勋章] 当前已开放 11~45 号全系列荣誉勋章！输入 @badge exchange <编号> 可兑换 (如 @badge exchange 43)。");
+                }
+                break;
+            }
+
             case ParsedCommandType.Help:
             case ParsedCommandType.Unknown:
                 foreach (var line in cmd.Message.Split('\n'))
@@ -2868,7 +2912,7 @@ public class GameScene : IScene
     private void RenderEquipmentWindow(int screenW, int screenH)
     {
         int winW = 250;
-        int winH = 350;
+        int winH = 390;
         int winX = 20;
         int winY = screenH - 140 - winH - 10;
         Vector2 mousePos = Raylib.GetMousePosition();
@@ -2896,7 +2940,7 @@ public class GameScene : IScene
         // 角色基本信息
         FontManager.DrawTextWithShadow($"角色: {_playerName} (战士)", winX + 12, winY + 34, 12, Color.Yellow, Color.Black);
 
-        // 8 大装备槽位布局 (2 列 x 4 行)
+        // 9 大装备槽位布局 (衣服/武器/头盔/项链/手镯x2/戒指x2/荣誉勋章)
         (EquipSlot slot, string label, int x, int y)[] slots =
         {
             (EquipSlot.Dress, "衣服", winX + 15, winY + 56),
@@ -2907,13 +2951,15 @@ public class GameScene : IScene
             (EquipSlot.ArmringR, "右手镯", winX + 130, winY + 140),
             (EquipSlot.RingL, "左戒指", winX + 15, winY + 182),
             (EquipSlot.RingR, "右戒指", winX + 130, winY + 182),
+            (EquipSlot.Badge, "荣誉勋章", winX + 15, winY + 224),
         };
 
         Item? hoveredItem = null;
 
         foreach (var (slot, label, sx, sy) in slots)
         {
-            Rectangle sRect = new(sx, sy, 100, 36);
+            int slotW = slot == EquipSlot.Badge ? 215 : 100;
+            Rectangle sRect = new(sx, sy, slotW, 36);
             bool isHover = Raylib.CheckCollisionPointRec(mousePos, sRect);
             Item? eq = _inv.EquippedItems[(int)slot];
 
@@ -2923,7 +2969,13 @@ public class GameScene : IScene
             FontManager.DrawText(label, sx + 4, sy + 3, 10, Color.DarkGray);
             if (eq != null)
             {
-                FontManager.DrawText(eq.Name, sx + 4, sy + 16, 11, Color.Gold);
+                Color itemColor = eq.Type == ItemType.Badge ? Color.Orange : Color.Gold;
+                string displayName = eq.Name;
+                if (eq.Type == ItemType.Badge && eq.ReforgeCount > 0)
+                {
+                    displayName += $" (+{eq.ExtraDc + eq.ExtraMc + eq.ExtraSc + eq.ExtraAc + eq.ExtraMac})";
+                }
+                FontManager.DrawText(displayName, sx + 4, sy + 16, 11, itemColor);
                 if (isHover)
                 {
                     hoveredItem = eq;
@@ -2955,7 +3007,7 @@ public class GameScene : IScene
         }
 
         // 下部动态属性汇总
-        int attrY = winY + 228;
+        int attrY = winY + 268;
         Raylib.DrawLine(winX + 10, attrY, winX + winW - 10, attrY, new Color(75, 62, 40, 200));
 
         // 同步等级基础属性至包裹系统
@@ -2965,11 +3017,10 @@ public class GameScene : IScene
         _inv.BaseMaxAc = _progression.BaseMaxAc;
 
         FontManager.DrawText($"角色等级: Lv.{_progression.Level} (EXP: {_progression.ExpPercent:P1})", winX + 15, attrY + 8, 12, Color.Gold);
-        FontManager.DrawText($"物理攻击 (DC): {_inv.TotalMinDc} - {_inv.TotalMaxDc}", winX + 15, attrY + 28, 12, Color.White);
-        FontManager.DrawText($"物理防御 (AC): {_inv.TotalMinAc} - {_inv.TotalMaxAc}", winX + 15, attrY + 46, 12, Color.White);
-        FontManager.DrawText($"生命数值 (HP): {(int)_hp} / {(int)MAX_HP}", winX + 15, attrY + 64, 12, Color.Lime);
-        FontManager.DrawText($"魔法数值 (MP): {(int)_mp} / {(int)MAX_MP}", winX + 15, attrY + 82, 12, Color.SkyBlue);
-        FontManager.DrawText($"随身负重: {_inv.TotalWeight} / 280", winX + 15, attrY + 100, 12, Color.LightGray);
+        FontManager.DrawText($"物理攻击 (DC): {_inv.TotalMinDc} - {_inv.TotalMaxDc}", winX + 15, attrY + 26, 11, Color.White);
+        FontManager.DrawText($"物理防御 (AC): {_inv.TotalMinAc} - {_inv.TotalMaxAc}", winX + 15, attrY + 42, 11, Color.White);
+        FontManager.DrawText($"生命魔法: HP {(int)_hp}/{(int)MAX_HP}  MP {(int)_mp}/{(int)MAX_MP}", winX + 15, attrY + 58, 11, Color.Lime);
+        FontManager.DrawText($"负重: {_inv.TotalWeight}/280  |  声望: {SocialManager.Instance.Reputation}", winX + 15, attrY + 74, 11, Color.LightGray);
 
         if (hoveredItem != null)
         {
@@ -2979,8 +3030,8 @@ public class GameScene : IScene
 
     private void RenderItemTooltip(Item item, int mouseX, int mouseY)
     {
-        int tipW = 175;
-        int tipH = 110;
+        int tipW = 185;
+        int tipH = 120;
         int tipX = Math.Min(Raylib.GetScreenWidth() - tipW - 10, mouseX + 12);
         int tipY = Math.Min(Raylib.GetScreenHeight() - tipH - 10, mouseY + 12);
 
@@ -2997,21 +3048,34 @@ public class GameScene : IScene
             FontManager.DrawText($"防御力: {item.MinAc} - {item.MaxAc}", tipX + 8, tipY + 38, 10, Color.SkyBlue);
         else if (item.Type == ItemType.Potion)
             FontManager.DrawText($"恢复: HP+{item.HpRestore} MP+{item.MpRestore}", tipX + 8, tipY + 38, 10, Color.Pink);
+        else if (item.Type == ItemType.Badge)
+        {
+            var bDef = BadgeManager.Instance.GetBadgeDef(item.BadgeNumber);
+            string gName = bDef?.GradeName ?? "荣誉勋章";
+            FontManager.DrawText($"品阶: {gName} ({item.BadgeNumber}号)", tipX + 8, tipY + 38, 10, Color.Gold);
+            string bAttr = bDef?.AttrDescription ?? "";
+            FontManager.DrawText(bAttr, tipX + 8, tipY + 52, 9, Color.Lime);
+        }
 
         Color duraColor = item.IsBroken ? Color.Red : (item.Dura <= 2 ? Color.Orange : Color.Gray);
         string brokenTag = item.IsBroken ? " [破损失效]" : "";
-        FontManager.DrawText($"持久: {item.Dura}/{item.MaxDura}{brokenTag}", tipX + 8, tipY + 54, 10, duraColor);
+        FontManager.DrawText($"持久: {item.Dura}/{item.MaxDura}{brokenTag}", tipX + 8, tipY + 68, 10, duraColor);
 
         if (item.InUpgradeTrial)
         {
-            FontManager.DrawText("★ 待试刀开刃 (斩怪判定)", tipX + 8, tipY + 70, 10, Color.Magenta);
+            FontManager.DrawText("★ 待试刀开刃 (斩怪判定)", tipX + 8, tipY + 84, 10, Color.Magenta);
+        }
+        else if (item.Type == ItemType.Badge && item.ReforgeCount > 0)
+        {
+            int totalBonus = item.ExtraDc + item.ExtraMc + item.ExtraSc + item.ExtraAc + item.ExtraMac;
+            FontManager.DrawText($"★ 圣域重铸: 极品洗炼 +{totalBonus} (共{item.ReforgeCount}次)", tipX + 8, tipY + 84, 9, Color.Yellow);
         }
         else
         {
-            FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 70, 10, Color.Gold);
+            FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 84, 10, Color.Gold);
         }
 
-        FontManager.DrawText("铁匠铺支持普修/特修/淬炼", tipX + 8, tipY + 86, 9, Color.DarkGray);
+        FontManager.DrawText("铁匠修理/特修/武馆重铸", tipX + 8, tipY + 100, 9, Color.DarkGray);
     }
 
     private bool CheckNpcDialogCollision(Vector2 mousePos, int screenW, int screenH)
@@ -3242,6 +3306,33 @@ public class GameScene : IScene
                 _showSocialWindow = true;
                 _socialTab = 1;
                 SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                break;
+            case "@badge_exchange":
+                _showEquip = true;
+                int myRep = SocialManager.Instance.Reputation;
+                _chatLogs.Add($"[武馆教头] “少侠当前江湖声望: {myRep} 点！青铜勋章需10点，白银需20点，黄金需40点，王者需80点。输入 @badge exchange <编号> 兑换！”");
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                break;
+            case "@badge_reforge":
+                _showEquip = true;
+                var currentBadge = _inv.EquippedItems[(int)EquipSlot.Badge];
+                if (currentBadge == null)
+                {
+                    _chatLogs.Add("[武馆教头] “少侠尚未佩戴任何勋章，请先在 F10 状态栏佩戴勋章后再来淬炼！”");
+                }
+                else
+                {
+                    int repBefore = SocialManager.Instance.Reputation;
+                    var rfRes = BadgeManager.Instance.ReforgeBadge(currentBadge, ref repBefore);
+                    _chatLogs.Add($"[武馆教头] “{rfRes.Message}”");
+                    if (rfRes.Success)
+                    {
+                        int consumed = SocialManager.Instance.Reputation - repBefore;
+                        SocialManager.Instance.ConsumeReputation(consumed);
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
                 break;
             case "@close":
             default:

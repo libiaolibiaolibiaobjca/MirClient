@@ -9,7 +9,8 @@ public enum ItemType
     Armring = 4,  // 手镯
     Ring = 5,     // 戒指
     Potion = 6,   // 消耗药水 (金创药, 魔法药)
-    Misc = 7      // 杂物 / 金币
+    Misc = 7,     // 杂物 / 金币
+    Badge = 8     // 圣域荣誉勋章 (11~45号勋章)
 }
 
 /// <summary>
@@ -29,12 +30,25 @@ public class Item
     // 属性加成
     public int MinDc { get; set; }
     public int MaxDc { get; set; }
+    public int MinMc { get; set; }
+    public int MaxMc { get; set; }
+    public int MinSc { get; set; }
+    public int MaxSc { get; set; }
     public int MinAc { get; set; }
     public int MaxAc { get; set; }
     public int MinMac { get; set; }
     public int MaxMac { get; set; }
     public int HpRestore { get; set; }
     public int MpRestore { get; set; }
+
+    // 勋章特有属性与重铸极品属性
+    public int BadgeNumber { get; set; } = 0;       // 勋章编号 (11~45)
+    public int ReforgeCount { get; set; } = 0;      // 勋章声望重铸次数
+    public int ExtraDc { get; set; } = 0;           // 额外极品物攻
+    public int ExtraMc { get; set; } = 0;           // 额外极品魔攻
+    public int ExtraSc { get; set; } = 0;           // 额外极品道术
+    public int ExtraAc { get; set; } = 0;           // 额外极品防御
+    public int ExtraMac { get; set; } = 0;          // 额外极品魔御
 
     public int Weight { get; set; }
     public int Dura { get; set; }      // 当前持久度

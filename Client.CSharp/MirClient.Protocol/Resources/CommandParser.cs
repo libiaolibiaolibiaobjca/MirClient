@@ -32,6 +32,7 @@ public enum ParsedCommandType
     Graduate,   // @graduate 武馆出师典礼
     Friend,     // @friend 好友管理与上下线
     Reputation, // @reputation 江湖声望查询与调整
+    Badge,      // @badge 圣域荣誉勋章兑换与声望重铸
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1094,6 +1095,43 @@ public static class CommandParser
                 };
             }
 
+            case "badge":
+            case "勋章":
+            case "荣誉勋章":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Badge,
+                        SubAction = "list",
+                        RawInput = input,
+                        Message = "查看圣域荣誉勋章图鉴"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                int badgeNum = 43; // 默认43号战士勋章
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int parsedNum))
+                {
+                    badgeNum = parsedNum;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Badge,
+                    SubAction = sub,
+                    Amount = badgeNum,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "exchange" or "兑换" => $"声望兑换【{badgeNum}号】荣誉勋章",
+                        "reforge" or "重铸" or "洗炼" => "重铸当前佩戴的荣誉勋章",
+                        _ => $"荣誉勋章操作: {sub}"
+                    }
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1120,6 +1158,8 @@ public static class CommandParser
                               "  @graduate [徒弟名]    - 举行武馆出师典礼 (徒弟>=35级)\n" +
                               "  @friend <add/del/list> <名> - 好友管理 (快捷键 F 打开社交面板)\n" +
                               "  @reputation [add <值>]- 查询或增加江湖声望\n" +
+                              "  @badge exchange <编号>- 声望兑换荣誉勋章 (如 @badge exchange 43)\n" +
+                              "  @badge reforge        - 消耗声望重铸佩戴勋章觉醒极品属性\n" +
                               "  @stall on <招牌名>    - 在主城安全区支起摊位摆摊\n" +
                               "  @stall off            - 收摊并取回未售商品\n" +
                               "  @stall add <物品> <价>- 将背包物品上架至摊位货架\n" +

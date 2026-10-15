@@ -9,7 +9,8 @@ public enum EquipSlot
     ArmringL = 4, // 左手镯
     ArmringR = 5, // 右手镯
     RingL = 6,    // 左戒指
-    RingR = 7     // 右戒指
+    RingR = 7,    // 右戒指
+    Badge = 8     // 圣域荣誉勋章
 }
 
 /// <summary>
@@ -18,7 +19,7 @@ public enum EquipSlot
 public class InventoryManager
 {
     public const int BAG_CAPACITY = 40; // 经典 40 格背包
-    public const int EQUIP_SLOTS_COUNT = 8;
+    public const int EQUIP_SLOTS_COUNT = 9;
 
     // 背包槽位
     private readonly Item?[] _bag = new Item?[BAG_CAPACITY];
@@ -38,11 +39,15 @@ public class InventoryManager
     public int BaseMinAc { get; set; } = 1;
     public int BaseMaxAc { get; set; } = 2;
 
-    // 装备叠加总属性
-    public int TotalMinDc => BaseMinDc + GetEquippedSum(i => i.MinDc);
-    public int TotalMaxDc => BaseMaxDc + GetEquippedSum(i => i.MaxDc);
-    public int TotalMinAc => BaseMinAc + GetEquippedSum(i => i.MinAc);
-    public int TotalMaxAc => BaseMaxAc + GetEquippedSum(i => i.MaxAc);
+    // 装备与勋章叠加总属性 (含重铸附加极品)
+    public int TotalMinDc => BaseMinDc + GetEquippedSum(i => i.MinDc + i.ExtraDc);
+    public int TotalMaxDc => BaseMaxDc + GetEquippedSum(i => i.MaxDc + i.ExtraDc);
+    public int TotalMinMc => GetEquippedSum(i => i.MinMc + i.ExtraMc);
+    public int TotalMaxMc => GetEquippedSum(i => i.MaxMc + i.ExtraMc);
+    public int TotalMinSc => GetEquippedSum(i => i.MinSc + i.ExtraSc);
+    public int TotalMaxSc => GetEquippedSum(i => i.MaxSc + i.ExtraSc);
+    public int TotalMinAc => BaseMinAc + GetEquippedSum(i => i.MinAc + i.ExtraAc);
+    public int TotalMaxAc => BaseMaxAc + GetEquippedSum(i => i.MaxAc + i.ExtraAc);
     public int TotalWeight => GetEquippedSum(i => i.Weight) + GetBagSum(i => i.Weight * i.Count);
 
     public InventoryManager()
@@ -128,6 +133,7 @@ public class InventoryManager
             ItemType.Necklace => EquipSlot.Necklace,
             ItemType.Armring => _equipment[(int)EquipSlot.ArmringL] == null ? EquipSlot.ArmringL : EquipSlot.ArmringR,
             ItemType.Ring => _equipment[(int)EquipSlot.RingL] == null ? EquipSlot.RingL : EquipSlot.RingR,
+            ItemType.Badge => EquipSlot.Badge,
             _ => (EquipSlot)(-1)
         };
 

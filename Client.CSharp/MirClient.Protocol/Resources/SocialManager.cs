@@ -101,6 +101,14 @@ public class SocialManager
         Reputation = Math.Max(0, Reputation + amount);
     }
 
+    public bool ConsumeReputation(int amount)
+    {
+        if (amount <= 0) return true;
+        if (Reputation < amount) return false;
+        Reputation -= amount;
+        return true;
+    }
+
     #region 好友管理
 
     public (bool Success, string Message) AddFriend(string name, CharacterJob job, int level, string mapName = "比奇城", bool isOnline = true)
