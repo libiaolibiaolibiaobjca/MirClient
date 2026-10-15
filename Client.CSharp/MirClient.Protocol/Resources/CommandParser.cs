@@ -20,6 +20,7 @@ public enum ParsedCommandType
     Protect,    // @protect on/off [阈值%]
     Kill,       // @kill 角色阵亡自尽测试
     Revive,     // @revive 原地神圣复活
+    Group,      // @group 组队管理与模拟队员
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -35,6 +36,8 @@ public class ParsedCommand
     public string TargetName { get; set; } = "";
     public Vector2 TargetTile { get; set; }
     public SoundEffectType? TargetSound { get; set; }
+    public string SubAction { get; set; } = "";
+    public CharacterJob TargetJob { get; set; } = CharacterJob.Warrior;
 }
 
 /// <summary>
@@ -435,6 +438,99 @@ public static class CommandParser
                 };
             }
 
+            case "group":
+            case "party":
+            case "组队":
+            case "队伍":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法:\n" +
+                                  "  @group add <名字> [等级] [职业(战士/法师/道士)] - 模拟添加队友\n" +
+                                  "  @group kick <名字>                            - 踢出队员\n" +
+                                  "  @group leave                                  - 退出/解散队伍\n" +
+                                  "  @group allow <on/off>                         - 开关允许组队"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                if (sub == "leave" || sub == "退队" || sub == "解散")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Group,
+                        RawInput = input,
+                        SubAction = "leave",
+                        Message = "队伍已解散或已退出当前队伍。"
+                    };
+                }
+                else if (sub == "kick" || sub == "踢出")
+                {
+                    string targetName = parts.Length >= 3 ? parts[2] : "";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Group,
+                        RawInput = input,
+                        SubAction = "kick",
+                        TargetName = targetName,
+                        Message = $"已将【{targetName}】移出队伍。"
+                    };
+                }
+                else if (sub == "allow" || sub == "允许")
+                {
+                    bool enable = parts.Length < 3 || (parts[2].ToLowerInvariant() != "off" && parts[2] != "0" && parts[2] != "关");
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Group,
+                        RawInput = input,
+                        SubAction = "allow",
+                        Enabled = enable,
+                        Message = enable ? "已开启允许组队" : "已关闭允许组队"
+                    };
+                }
+                else if (sub == "add" || sub == "添加" || sub == "邀请")
+                {
+                    string targetName = parts.Length >= 3 ? parts[2] : "无极道圣";
+                    int level = 35;
+                    CharacterJob job = CharacterJob.Warrior;
+
+                    if (parts.Length >= 4 && int.TryParse(parts[3], out int parsedLvl))
+                    {
+                        level = Math.Clamp(parsedLvl, 1, 99);
+                    }
+
+                    if (parts.Length >= 5)
+                    {
+                        string jobStr = parts[4].ToLowerInvariant();
+                        if (jobStr.Contains("法") || jobStr == "wizard" || jobStr == "1") job = CharacterJob.Wizard;
+                        else if (jobStr.Contains("道") || jobStr == "taoist" || jobStr == "2") job = CharacterJob.Taoist;
+                        else job = CharacterJob.Warrior;
+                    }
+
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Group,
+                        RawInput = input,
+                        SubAction = "add",
+                        TargetName = targetName,
+                        Amount = level,
+                        TargetJob = job,
+                        Message = $"模拟队员【{targetName}】({level}级 {job}) 加入了队伍！"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Unknown,
+                    RawInput = input,
+                    Message = $"未知组队子指令【{parts[1]}】！可选: add, kick, leave, allow"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -451,6 +547,8 @@ public static class CommandParser
                               "  @move <X> <Y>         - 瞬移到指定坐标 (如 @move 330 268)\n" +
                               "  @map <地图名/ID> [X Y]- 跨地图自由穿梭 (如 @map 兽人古墓, @map 3)\n" +
                               "  @protect <on/off> [HP%]- 智能生命守护/秒喝药设置 (如 @protect on 40)\n" +
+                              "  @group add <名> [级] [职业] - 模拟添加队友 (如 @group add 烈火法神 38 法师)\n" +
+                              "  @group leave          - 退出/解散当前队伍\n" +
                               "  @kill                 - 角色自尽测试黑白死亡屏\n" +
                               "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +

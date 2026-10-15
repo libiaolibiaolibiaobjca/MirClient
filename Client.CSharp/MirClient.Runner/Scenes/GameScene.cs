@@ -47,6 +47,7 @@ public class GameScene : IScene
     private readonly InventoryManager _inv = new();
     private bool _showBag = false;
     private bool _showEquip = false;
+    private bool _showGroupWindow = false;
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -143,11 +144,13 @@ public class GameScene : IScene
         }
 
         DeathManager.Instance.Reset();
+        GroupManager.Instance.Reset();
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 快捷法术: [F1] 雷电术；[F2] 烈火剑法；[F3] 治愈术；[F4] 火球术 (点击法术图标施法)。");
         _chatLogs.Add("[系统] 快捷腰带: 数字键 [1~6] 或鼠标点击快捷使用药水；智能生命保护已激活 (@protect 查看/设置)。");
         _chatLogs.Add("[系统] 阵亡重生: 角色阵亡进入经典黑白屏，按空格/回车回城复活 (@kill/@revive 测试)。");
+        _chatLogs.Add("[系统] 组队协同: 按 [P] 键开启组队面板与左侧浮窗，享有 120% 组队经验加成 (@group)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -313,6 +316,19 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
         {
             _showMiniMap = !_showMiniMap;
+        }
+
+        // P: 开关组队面板
+        if (Raylib.IsKeyPressed(KeyboardKey.P))
+        {
+            _showGroupWindow = !_showGroupWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 实时同步自身血量与地图至组队列表
+        if (GroupManager.Instance.HasGroup)
+        {
+            GroupManager.Instance.UpdateMemberStatus(_playerName, _hp, MaxHp, MapManager.Instance.ActiveMap.Name);
         }
 
         bool isOneShot = IsOneShotAction(_currentAction);
@@ -673,6 +689,18 @@ public class GameScene : IScene
         // 5. 渲染 F9 背包物品栏与 F10 角色装备状态窗口
         if (_showBag) RenderInventoryWindow(screenW, screenH);
         if (_showEquip) RenderEquipmentWindow(screenW, screenH);
+
+        // 5.1 渲染左侧常驻队伍成员浮窗
+        if (GroupManager.Instance.HasGroup)
+        {
+            RenderPartyHud();
+        }
+
+        // 5.2 渲染 P 键组队管理面板
+        if (_showGroupWindow)
+        {
+            RenderGroupWindow(screenW, screenH);
+        }
 
         // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
         if (_activeNpc != null && _activeNpcProfile != null)
@@ -1147,8 +1175,16 @@ public class GameScene : IScene
             _ => 100
         };
 
-        bool leveled = _progression.AddExp(expGain, out int levelsGained);
-        _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +{expGain} (当前: Lv.{_progression.Level} {_progression.CurrentExp}/{_progression.RequiredExp})");
+        long totalPool = GroupManager.Instance.CalculateSharedExp(expGain, out long expGained);
+        bool leveled = _progression.AddExp(expGained, out int levelsGained);
+        if (GroupManager.Instance.HasGroup && GroupManager.Instance.Members.Count > 1)
+        {
+            _chatLogs.Add($"[组队] 队伍消灭【{target.Name}】！获得共享经验 +{expGained} (总经验池: {totalPool}，含 120% 组队加成)！(当前: Lv.{_progression.Level} {_progression.CurrentExp}/{_progression.RequiredExp})");
+        }
+        else
+        {
+            _chatLogs.Add($"[击杀] 成功消灭【{target.Name}】！获得经验值 +{expGained} (当前: Lv.{_progression.Level} {_progression.CurrentExp}/{_progression.RequiredExp})");
+        }
 
         if (leveled)
         {
@@ -1844,6 +1880,46 @@ public class GameScene : IScene
 
             case ParsedCommandType.Revive:
                 ReviveInPlace();
+                break;
+
+            case ParsedCommandType.Group:
+                if (cmd.SubAction == "leave")
+                {
+                    GroupManager.Instance.LeaveGroup();
+                    _chatLogs.Add("[组队] 您已退出队伍，队伍已解散。");
+                }
+                else if (cmd.SubAction == "kick")
+                {
+                    if (GroupManager.Instance.RemoveMember(cmd.TargetName))
+                    {
+                        _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】已被移出队伍。");
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[组队] 队伍中未找到队员【{cmd.TargetName}】！");
+                    }
+                }
+                else if (cmd.SubAction == "allow")
+                {
+                    GroupManager.Instance.AllowGroup = cmd.Enabled;
+                    _chatLogs.Add($"[组队] {cmd.Message}");
+                }
+                else if (cmd.SubAction == "add")
+                {
+                    if (!GroupManager.Instance.HasGroup)
+                    {
+                        GroupManager.Instance.CreateGroup(_playerName, CharacterJob.Warrior, _progression.Level, _hp, MaxHp, MapManager.Instance.ActiveMap.Name);
+                    }
+                    float fakeHp = cmd.TargetJob == CharacterJob.Wizard ? 280f : (cmd.TargetJob == CharacterJob.Taoist ? 420f : 650f);
+                    if (GroupManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, fakeHp, fakeHp, MapManager.Instance.ActiveMap.Name))
+                    {
+                        _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob}) 已加入队伍！");
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[组队] 无法添加【{cmd.TargetName}】(可能已满员或已在队伍中)。");
+                    }
+                }
                 break;
 
             case ParsedCommandType.Help:
@@ -2889,5 +2965,201 @@ public class GameScene : IScene
                 _chatLogs.Add($"[快捷嗑药] 包裹中暂无【{target}】！按 F9 打开包裹查看物品。");
             }
         }
+    }
+
+    private void RenderPartyHud()
+    {
+        var members = GroupManager.Instance.Members;
+        if (members.Count == 0) return;
+
+        int startX = 14;
+        int curY = 40;
+        int cardW = 148;
+        int cardH = 38;
+
+        for (int i = 0; i < members.Count; i++)
+        {
+            var m = members[i];
+            Rectangle cardRec = new(startX, curY, cardW, cardH);
+            Raylib.DrawRectangleRec(cardRec, new Color(16, 16, 20, 210));
+            Raylib.DrawRectangleLinesEx(cardRec, 1, m.IsLeader ? new Color(200, 160, 40, 220) : new Color(70, 70, 80, 180));
+
+            // 队长 / 队员标志
+            string roleTag = m.IsLeader ? "★" : "•";
+            Color roleCol = m.IsLeader ? Color.Gold : Color.LightGray;
+            FontManager.DrawTextWithShadow(roleTag, startX + 4, curY + 4, 12, roleCol, Color.Black);
+
+            // 名字与职业 (战士/法师/道士专属色)
+            Color jobCol = m.Job switch
+            {
+                CharacterJob.Warrior => new Color(255, 215, 0, 255),
+                CharacterJob.Wizard  => new Color(100, 180, 255, 255),
+                CharacterJob.Taoist  => new Color(120, 255, 150, 255),
+                _ => Color.White
+            };
+            FontManager.DrawTextWithShadow(m.Name, startX + 18, curY + 3, 12, jobCol, Color.Black);
+
+            // 等级与地图
+            string subText = $"Lv.{m.Level} [{m.MapName}]";
+            FontManager.DrawTextWithShadow(subText, startX + 18, curY + 16, 10, Color.LightGray, Color.Black);
+
+            // 动态渐变血条 (长 136, 高 4)
+            int barX = startX + 6;
+            int barY = curY + 29;
+            int barW = 136;
+            int barH = 5;
+            Raylib.DrawRectangle(barX, barY, barW, barH, new Color(35, 35, 40, 255));
+            int fillW = (int)(barW * m.HpPercent);
+            Color hpCol = m.HpPercent > 0.5f ? new Color(40, 190, 40, 255) : (m.HpPercent > 0.2f ? new Color(220, 180, 20, 255) : new Color(220, 40, 40, 255));
+            if (fillW > 0)
+            {
+                Raylib.DrawRectangle(barX, barY, fillW, barH, hpCol);
+            }
+            Raylib.DrawRectangleLines(barX, barY, barW, barH, new Color(80, 80, 90, 200));
+
+            curY += cardH + 4;
+        }
+    }
+
+    private void RenderGroupWindow(int screenW, int screenH)
+    {
+        int winW = 300;
+        int winH = 360;
+        int winX = 14;
+        int winY = 100;
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 窗口背景与双层边框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(22, 20, 20, 245));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, new Color(160, 130, 70, 255));
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 26, new Color(45, 38, 30, 255));
+
+        // 标题栏
+        string title = "【 队伍组队管理 】";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 6, 14, Color.Gold, Color.Black);
+
+        // 关闭 [X] 按钮
+        Rectangle closeBtn = new(winX + winW - 24, winY + 4, 18, 18);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(160, 40, 40, 255) : new Color(80, 40, 40, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 20, winY + 6, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showGroupWindow = false;
+        }
+
+        // 允许组队复选框
+        int chkY = winY + 34;
+        Rectangle chkRec = new(winX + 12, chkY, 14, 14);
+        bool chkHover = Raylib.CheckCollisionPointRec(mousePos, chkRec);
+        Raylib.DrawRectangleRec(chkRec, new Color(40, 40, 45, 255));
+        Raylib.DrawRectangleLines(winX + 12, chkY, 14, 14, chkHover ? Color.Gold : Color.Gray);
+        if (GroupManager.Instance.AllowGroup)
+        {
+            FontManager.DrawTextWithShadow("√", winX + 14, chkY - 1, 12, Color.Yellow, Color.Black);
+        }
+        FontManager.DrawTextWithShadow("允许组队 (P键开启/关闭)", winX + 32, chkY + 1, 12, Color.LightGray, Color.Black);
+
+        if (chkHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            GroupManager.Instance.AllowGroup = !GroupManager.Instance.AllowGroup;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 成员列表区域
+        int listY = winY + 56;
+        int listH = 220;
+        Raylib.DrawRectangle(winX + 10, listY, winW - 20, listH, new Color(15, 14, 16, 230));
+        Raylib.DrawRectangleLines(winX + 10, listY, winW - 20, listH, new Color(70, 65, 60, 200));
+
+        var members = GroupManager.Instance.Members;
+        if (members.Count == 0)
+        {
+            string emptyMsg = "当前未处于任何队伍中\n点击下方按钮创建队伍或添加队员";
+            FontManager.DrawTextWithShadow(emptyMsg, winX + 40, listY + 80, 12, Color.Gray, Color.Black);
+        }
+        else
+        {
+            int itemY = listY + 6;
+            for (int i = 0; i < members.Count; i++)
+            {
+                var m = members[i];
+                string leaderMark = m.IsLeader ? "★[队长]" : "  [队员]";
+                string mText = $"{leaderMark} {m.Name} ({m.JobName} Lv.{m.Level})";
+                Color mCol = m.IsLeader ? Color.Gold : (m.Name == _playerName ? Color.Yellow : Color.White);
+                FontManager.DrawTextWithShadow(mText, winX + 14, itemY, 12, mCol, Color.Black);
+
+                // 踢出按钮 (若自己是队长且该队员非自己)
+                bool amILeader = GroupManager.Instance.Leader?.Name == _playerName;
+                if (amILeader && m.Name != _playerName)
+                {
+                    Rectangle kickBtn = new(winX + winW - 55, itemY - 1, 38, 16);
+                    bool kickHover = Raylib.CheckCollisionPointRec(mousePos, kickBtn);
+                    Raylib.DrawRectangleRec(kickBtn, kickHover ? new Color(180, 40, 40, 255) : new Color(80, 30, 30, 200));
+                    FontManager.DrawTextWithShadow("踢出", winX + winW - 47, itemY + 1, 10, Color.White, Color.Black);
+
+                    if (kickHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        GroupManager.Instance.RemoveMember(m.Name);
+                        _chatLogs.Add($"[组队] 已将【{m.Name}】移出队伍。");
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        break;
+                    }
+                }
+
+                itemY += 20;
+            }
+        }
+
+        // 底部功能按钮栏 (召唤模拟队友 / 退出队伍)
+        int btnY = winY + winH - 68;
+        Rectangle addBotBtn = new(winX + 14, btnY, 125, 26);
+        bool addHover = Raylib.CheckCollisionPointRec(mousePos, addBotBtn);
+        Raylib.DrawRectangleRec(addBotBtn, addHover ? new Color(70, 90, 130, 255) : new Color(40, 50, 70, 220));
+        Raylib.DrawRectangleLines(winX + 14, btnY, 125, 26, addHover ? Color.Gold : Color.SkyBlue);
+        FontManager.DrawTextWithShadow("+ 召唤模拟队友", winX + 26, btnY + 6, 12, addHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (addHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            if (!GroupManager.Instance.HasGroup)
+            {
+                GroupManager.Instance.CreateGroup(_playerName, CharacterJob.Warrior, _progression.Level, _hp, MaxHp, MapManager.Instance.ActiveMap.Name);
+            }
+
+            int currentCount = GroupManager.Instance.Members.Count;
+            string botName = currentCount switch
+            {
+                1 => "烈火法神",
+                2 => "无极道圣",
+                3 => "雷霆狂战",
+                4 => "幽冥法尊",
+                _ => $"玛法义士{currentCount}"
+            };
+            CharacterJob botJob = (CharacterJob)(currentCount % 3);
+            float fakeHp = botJob == CharacterJob.Wizard ? 280f : (botJob == CharacterJob.Taoist ? 420f : 680f);
+            if (GroupManager.Instance.AddMember(botName, botJob, 35 + currentCount, fakeHp, fakeHp, MapManager.Instance.ActiveMap.Name))
+            {
+                _chatLogs.Add($"[组队] 模拟队友【{botName}】加入队伍！");
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            }
+        }
+
+        Rectangle leaveBtn = new(winX + 155, btnY, 125, 26);
+        bool leaveHover = Raylib.CheckCollisionPointRec(mousePos, leaveBtn);
+        Raylib.DrawRectangleRec(leaveBtn, leaveHover ? new Color(140, 50, 50, 255) : new Color(70, 30, 30, 220));
+        Raylib.DrawRectangleLines(winX + 155, btnY, 125, 26, leaveHover ? Color.Gold : new Color(205, 92, 92, 255));
+        FontManager.DrawTextWithShadow("退出 / 解散队伍", winX + 168, btnY + 6, 12, leaveHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (leaveHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            GroupManager.Instance.LeaveGroup();
+            _chatLogs.Add("[组队] 您已退出并解散队伍。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 组队加成说明
+        string tip = "★ 组队打怪享有 120% 经验池加成并由全员共享";
+        FontManager.DrawTextWithShadow(tip, winX + 14, winY + winH - 30, 11, Color.Gold, Color.Black);
     }
 }
