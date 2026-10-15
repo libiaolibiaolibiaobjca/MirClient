@@ -22,6 +22,7 @@ public enum ParsedCommandType
     Revive,     // @revive 原地神圣复活
     Group,      // @group 组队管理与模拟队员
     Guild,      // @guild 行会与称号管理
+    Stall,      // @stall 摆摊与市场集市
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -661,6 +662,120 @@ public static class CommandParser
                 };
             }
 
+            case "stall":
+            case "摆摊":
+            case "设摊":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Stall,
+                        SubAction = "toggle",
+                        RawInput = input,
+                        Message = "摆摊指令: @stall on [招牌名], @stall off, @stall add <物品名> <价格>, @stall buy <序号>, @stall shout"
+                    };
+                }
+
+                string subAction = parts[1].ToLowerInvariant();
+                switch (subAction)
+                {
+                    case "on":
+                    case "open":
+                    case "开":
+                    case "开启":
+                    {
+                        string title = parts.Length >= 3 ? string.Join(' ', parts.Skip(2)) : "【极品装备】特价大甩卖";
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Stall,
+                            SubAction = "on",
+                            TargetName = title,
+                            RawInput = input,
+                            Message = $"开启摆摊，招牌设定为: {title}"
+                        };
+                    }
+
+                    case "off":
+                    case "close":
+                    case "关":
+                    case "收摊":
+                    {
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Stall,
+                            SubAction = "off",
+                            RawInput = input,
+                            Message = "收起摊位并取回商品"
+                        };
+                    }
+
+                    case "add":
+                    case "上架":
+                    {
+                        if (parts.Length < 4 || !int.TryParse(parts[3], out int price))
+                        {
+                            return new ParsedCommand
+                            {
+                                Type = ParsedCommandType.Unknown,
+                                RawInput = input,
+                                Message = "格式错误！用法: @stall add <物品名称> <售价金币> (如: @stall add 裁决之杖 50000)"
+                            };
+                        }
+
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Stall,
+                            SubAction = "add",
+                            TargetName = parts[2],
+                            Amount = price,
+                            RawInput = input,
+                            Message = $"上架物品【{parts[2]}】，标价 {price} 金币"
+                        };
+                    }
+
+                    case "buy":
+                    case "购买":
+                    {
+                        int index = 0;
+                        if (parts.Length >= 3 && int.TryParse(parts[2], out int idx))
+                        {
+                            index = idx;
+                        }
+
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Stall,
+                            SubAction = "buy",
+                            Amount = index,
+                            RawInput = input,
+                            Message = $"购买货架第 {index} 号商品"
+                        };
+                    }
+
+                    case "shout":
+                    case "喊话":
+                    case "叫卖":
+                    {
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Stall,
+                            SubAction = "shout",
+                            RawInput = input,
+                            Message = "发起公屏摆摊叫卖喊话"
+                        };
+                    }
+
+                    default:
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Unknown,
+                            RawInput = input,
+                            Message = $"未知摆摊子指令【{parts[1]}】！可选: on, off, add, buy, shout"
+                        };
+                }
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -682,6 +797,11 @@ public static class CommandParser
                               "  @guild create <行会名>- 创立行会 (如 @guild create 傲视天下)\n" +
                               "  @guild rank <职务>    - 变更职务 (如 @guild rank 堂主)\n" +
                               "  @guild add <名> [级] [职] [阶] - 招募帮众 (如 @guild add 霸天虎 40 战士 堂主)\n" +
+                              "  @stall on <招牌名>    - 在主城安全区支起摊位摆摊\n" +
+                              "  @stall off            - 收摊并取回未售商品\n" +
+                              "  @stall add <物品> <价>- 将背包物品上架至摊位货架\n" +
+                              "  @stall buy <槽位编号> - 购买货架上的指定商品\n" +
+                              "  @stall shout          - 发起高亮公屏摆摊叫卖喊话\n" +
                               "  @kill                 - 角色自尽测试黑白死亡屏\n" +
                               "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +

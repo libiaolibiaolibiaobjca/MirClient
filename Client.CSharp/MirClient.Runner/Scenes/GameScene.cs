@@ -49,6 +49,7 @@ public class GameScene : IScene
     private bool _showEquip = false;
     private bool _showGroupWindow = false;
     private bool _showGuildWindow = false;
+    private bool _showStallWindow = false;
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -154,6 +155,7 @@ public class GameScene : IScene
         _chatLogs.Add("[系统] 阵亡重生: 角色阵亡进入经典黑白屏，按空格/回车回城复活 (@kill/@revive 测试)。");
         _chatLogs.Add("[系统] 组队协同: 按 [P] 键开启组队面板与左侧浮窗，享有 120% 组队经验加成 (@group)。");
         _chatLogs.Add("[系统] 行会争霸: 按 [G] 键开启行会面板，头顶渲染双层尊贵行会称号 (@guild)。");
+        _chatLogs.Add("[系统] 主城集市: 按 [V] 键开启主城安全区摆摊叫卖面板 (@stall 设摊/上架/叫卖)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -332,6 +334,13 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.G))
         {
             _showGuildWindow = !_showGuildWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // V: 开关主城集市摆摊面板
+        if (Raylib.IsKeyPressed(KeyboardKey.V))
+        {
+            _showStallWindow = !_showStallWindow;
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
@@ -716,6 +725,12 @@ public class GameScene : IScene
         if (_showGuildWindow)
         {
             RenderGuildWindow(screenW, screenH);
+        }
+
+        // 5.4 渲染 V 键主城安全区摆摊货架面板
+        if (_showStallWindow)
+        {
+            RenderStallWindow(screenW, screenH);
         }
 
         // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
@@ -1305,6 +1320,20 @@ public class GameScene : IScene
         {
             int titleW = FontManager.MeasureText(guildTitle, 11);
             FontManager.DrawTextWithShadow(guildTitle, (int)(center.X - titleW / 2f), headY - 32, 11, Color.Gold, Color.Black);
+        }
+
+        // 盛大原版主城安全区：摆摊招牌木匾横幅渲染
+        if (StallManager.Instance.IsStalling)
+        {
+            string stallSign = $"【摊】{StallManager.Instance.StallTitle}";
+            int signW = FontManager.MeasureText(stallSign, 11) + 12;
+            int signH = 16;
+            int signX = (int)(center.X - signW / 2f);
+            int signY = headY - (!string.IsNullOrEmpty(guildTitle) ? 50 : 34);
+
+            Raylib.DrawRectangle(signX, signY, signW, signH, new Color(70, 35, 10, 240));
+            Raylib.DrawRectangleLines(signX, signY, signW, signH, Color.Gold);
+            FontManager.DrawTextWithShadow(stallSign, signX + 6, signY + 2, 11, Color.Yellow, Color.Black);
         }
 
         string name = _playerName;
@@ -1996,6 +2025,90 @@ public class GameScene : IScene
                     {
                         _chatLogs.Add($"[行会] 招纳成员失败(可能已满员或已在行会中)。");
                     }
+                }
+                break;
+
+            case ParsedCommandType.Stall:
+                if (cmd.SubAction == "on")
+                {
+                    string mapId = MapManager.Instance.ActiveMap.Id;
+                    if (StallManager.Instance.StartStall(cmd.TargetName, _playerName, mapId, _playerTilePos, out string startMsg))
+                    {
+                        _chatLogs.Add($"[集市摆摊] {startMsg}");
+                        _showStallWindow = true;
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[集市摆摊] 摆摊失败: {startMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "off")
+                {
+                    if (StallManager.Instance.StopStall(_inv, out string stopMsg))
+                    {
+                        _chatLogs.Add($"[集市摆摊] {stopMsg}");
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[集市摆摊] 收摊失败: {stopMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "add")
+                {
+                    int targetSlot = -1;
+                    for (int i = 0; i < InventoryManager.BAG_CAPACITY; i++)
+                    {
+                        var it = _inv.GetItem(i);
+                        if (it != null && (it.Name == cmd.TargetName || it.Name.Contains(cmd.TargetName)))
+                        {
+                            targetSlot = i;
+                            break;
+                        }
+                    }
+
+                    if (targetSlot < 0)
+                    {
+                        _chatLogs.Add($"[集市摆摊] 背包中未找到物品【{cmd.TargetName}】！");
+                    }
+                    else
+                    {
+                        if (StallManager.Instance.AddItemToShelf(_inv, targetSlot, cmd.Amount, out string addMsg))
+                        {
+                            _chatLogs.Add($"[集市摆摊] {addMsg}");
+                            SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[集市摆摊] 上架失败: {addMsg}");
+                        }
+                    }
+                }
+                else if (cmd.SubAction == "buy")
+                {
+                    InventoryManager buyerInv = new();
+                    int dummyGold = 200000;
+                    if (StallManager.Instance.BuyItem(buyerInv, ref dummyGold, cmd.Amount, out string buyMsg))
+                    {
+                        _gold += StallManager.Instance.TotalEarnings > 0 ? 0 : 0;
+                        _chatLogs.Add($"[集市买卖] {buyMsg}");
+                        SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[集市买卖] 购买失败: {buyMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "shout")
+                {
+                    string shout = StallManager.Instance.GenerateShoutMessage();
+                    _chatLogs.Add(shout);
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+                else
+                {
+                    _showStallWindow = !_showStallWindow;
                 }
                 break;
 
@@ -3402,4 +3515,216 @@ public class GameScene : IScene
             }
         }
     }
+
+    private void RenderStallWindow(int screenW, int screenH)
+    {
+        int winW = 380;
+        int winH = 430;
+        int winX = 300;
+        int winY = 70;
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 窗口背景：复古深木棕色与典雅金边
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(22, 18, 16, 250));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, new Color(210, 160, 50, 255));
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 28, new Color(55, 38, 20, 255));
+
+        // 标题栏
+        string title = "【 主城集市 · 玩家摆摊与叫卖 】";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 6, 14, Color.Gold, Color.Black);
+
+        // 关闭 [X] 按钮
+        Rectangle closeBtn = new(winX + winW - 26, winY + 5, 20, 20);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(170, 40, 40, 255) : new Color(80, 35, 35, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 21, winY + 7, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showStallWindow = false;
+        }
+
+        // 摊位概况区
+        int infoY = winY + 36;
+        bool isStalling = StallManager.Instance.IsStalling;
+        string statusText = isStalling ? "● 营业中 (主城安全区)" : "○ 未设摊 (歇业中)";
+        Color statusColor = isStalling ? Color.Lime : Color.LightGray;
+        FontManager.DrawTextWithShadow($"状态: {statusText}", winX + 14, infoY, 12, statusColor, Color.Black);
+
+        string signText = isStalling ? $"招牌: {StallManager.Instance.StallTitle}" : "招牌: 【特价神兵】极品挥泪甩卖";
+        FontManager.DrawTextWithShadow(signText, winX + 14, infoY + 20, 12, Color.Yellow, Color.Black);
+
+        string statsText = $"摊主: {_playerName}  |  累计收益: {StallManager.Instance.TotalEarnings:N0} 金币";
+        FontManager.DrawTextWithShadow(statsText, winX + 14, infoY + 40, 11, Color.LightGray, Color.Black);
+
+        // 货架区域
+        int listY = infoY + 62;
+        int listH = 220;
+        Raylib.DrawRectangle(winX + 10, listY, winW - 20, listH, new Color(14, 12, 10, 240));
+        Raylib.DrawRectangleLines(winX + 10, listY, winW - 20, listH, new Color(80, 65, 45, 200));
+
+        var shelves = StallManager.Instance.Shelves;
+        if (!isStalling)
+        {
+            string tip = "当前尚未开摊！\n点击下方【在安全区设摊】按钮开启摊位，\n即可将背包极品装备上架销售。";
+            FontManager.DrawTextWithShadow(tip, winX + 45, listY + 80, 12, Color.Gray, Color.Black);
+        }
+        else if (shelves.Count == 0)
+        {
+            string emptyTip = "货架当前为空！\n点击下方【快速上架】或使用指令:\n@stall add <物品名> <单价金币> 上架珍宝。";
+            FontManager.DrawTextWithShadow(emptyTip, winX + 45, listY + 80, 12, Color.Gold, Color.Black);
+        }
+        else
+        {
+            int rowY = listY + 8;
+            for (int i = 0; i < shelves.Count; i++)
+            {
+                var s = shelves[i];
+                string rowText = $"[{i + 1}] {s.Item.Name}  售价: {s.Price:N0} 金币";
+                FontManager.DrawTextWithShadow(rowText, winX + 16, rowY + 3, 12, Color.Yellow, Color.Black);
+
+                // 【下架】按钮
+                Rectangle unlistBtn = new(winX + winW - 125, rowY, 48, 20);
+                bool unlistHover = Raylib.CheckCollisionPointRec(mousePos, unlistBtn);
+                Raylib.DrawRectangleRec(unlistBtn, unlistHover ? new Color(150, 60, 60, 255) : new Color(80, 40, 40, 220));
+                Raylib.DrawRectangleLines(winX + winW - 125, rowY, 48, 20, unlistHover ? Color.Gold : Color.Gray);
+                FontManager.DrawTextWithShadow("下架", winX + winW - 113, rowY + 3, 11, unlistHover ? Color.Yellow : Color.White, Color.Black);
+
+                if (unlistHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    if (StallManager.Instance.RemoveItemFromShelf(_inv, i, out string unlistMsg))
+                    {
+                        _chatLogs.Add($"[集市摆摊] {unlistMsg}");
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    }
+                }
+
+                // 【购买】测试按钮 (模拟买家试购)
+                Rectangle buyBtn = new(winX + winW - 70, rowY, 48, 20);
+                bool buyHover = Raylib.CheckCollisionPointRec(mousePos, buyBtn);
+                Raylib.DrawRectangleRec(buyBtn, buyHover ? new Color(50, 140, 60, 255) : new Color(30, 80, 40, 220));
+                Raylib.DrawRectangleLines(winX + winW - 70, rowY, 48, 20, buyHover ? Color.Gold : Color.Lime);
+                FontManager.DrawTextWithShadow("购买", winX + winW - 58, rowY + 3, 11, buyHover ? Color.Yellow : Color.White, Color.Black);
+
+                if (buyHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    InventoryManager buyerInv = new();
+                    buyerInv.ClearBag();
+                    int dummyGold = 500000;
+                    if (StallManager.Instance.BuyItem(buyerInv, ref dummyGold, i, out string buyMsg))
+                    {
+                        _chatLogs.Add($"[集市买卖] {buyMsg}");
+                        SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[集市买卖] 购买失败: {buyMsg}");
+                    }
+                }
+
+                rowY += 26;
+            }
+        }
+
+        // 底部功能按键
+        int btnY = listY + listH + 12;
+
+        // 按钮 1：开始摆摊 / 结束收摊
+        Rectangle toggleStallBtn = new(winX + 14, btnY, 110, 28);
+        bool toggleHover = Raylib.CheckCollisionPointRec(mousePos, toggleStallBtn);
+        Raylib.DrawRectangleRec(toggleStallBtn, toggleHover ? new Color(90, 70, 30, 255) : new Color(50, 40, 20, 230));
+        Raylib.DrawRectangleLines(winX + 14, btnY, 110, 28, toggleHover ? Color.Gold : new Color(180, 140, 50, 255));
+        string toggleLabel = isStalling ? "结束收摊" : "在安全区设摊";
+        FontManager.DrawTextWithShadow(toggleLabel, winX + (isStalling ? 38 : 22), btnY + 7, 12, toggleHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (toggleHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            if (isStalling)
+            {
+                if (StallManager.Instance.StopStall(_inv, out string stopMsg))
+                {
+                    _chatLogs.Add($"[集市摆摊] {stopMsg}");
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+            }
+            else
+            {
+                string mapId = MapManager.Instance.ActiveMap.Id;
+                if (StallManager.Instance.StartStall("【神兵阁】裁决战神便宜甩！", _playerName, mapId, _playerTilePos, out string startMsg))
+                {
+                    _chatLogs.Add($"[集市摆摊] {startMsg}");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    _chatLogs.Add($"[集市摆摊] 摆摊失败: {startMsg}");
+                }
+            }
+        }
+
+        // 按钮 2：快速上架 (将背包第一件物品标价上架)
+        Rectangle quickAddBtn = new(winX + 134, btnY, 110, 28);
+        bool quickHover = Raylib.CheckCollisionPointRec(mousePos, quickAddBtn);
+        Raylib.DrawRectangleRec(quickAddBtn, quickHover ? new Color(60, 80, 120, 255) : new Color(35, 45, 70, 230));
+        Raylib.DrawRectangleLines(winX + 134, btnY, 110, 28, quickHover ? Color.Gold : Color.SkyBlue);
+        FontManager.DrawTextWithShadow("+ 快速上架", winX + 154, btnY + 7, 12, quickHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (quickHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            if (!isStalling)
+            {
+                _chatLogs.Add("[集市摆摊] 请先点击【在安全区设摊】开启摊位！");
+            }
+            else
+            {
+                int firstSlot = -1;
+                for (int b = 0; b < InventoryManager.BAG_CAPACITY; b++)
+                {
+                    if (_inv.GetItem(b) != null)
+                    {
+                        firstSlot = b;
+                        break;
+                    }
+                }
+
+                if (firstSlot < 0)
+                {
+                    _chatLogs.Add("[集市摆摊] 背包空空如也，无可售商品！可输入 @make 裁决之杖 刷取。");
+                }
+                else
+                {
+                    var itm = _inv.GetItem(firstSlot)!;
+                    int defaultPrice = itm.Type == ItemType.Potion ? 800 : 28888;
+                    if (StallManager.Instance.AddItemToShelf(_inv, firstSlot, defaultPrice, out string addMsg))
+                    {
+                        _chatLogs.Add($"[集市摆摊] {addMsg}");
+                        SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[集市摆摊] 上架失败: {addMsg}");
+                    }
+                }
+            }
+        }
+
+        // 按钮 3：公屏叫卖喊话
+        Rectangle shoutBtn = new(winX + 254, btnY, 110, 28);
+        bool shoutHover = Raylib.CheckCollisionPointRec(mousePos, shoutBtn);
+        Raylib.DrawRectangleRec(shoutBtn, shoutHover ? new Color(130, 80, 20, 255) : new Color(75, 45, 15, 230));
+        Raylib.DrawRectangleLines(winX + 254, btnY, 110, 28, shoutHover ? Color.Gold : Color.Orange);
+        FontManager.DrawTextWithShadow("★ 公屏叫卖", winX + 274, btnY + 7, 12, shoutHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (shoutHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            string shoutMsg = StallManager.Instance.GenerateShoutMessage();
+            _chatLogs.Add(shoutMsg);
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 底部提示
+        string footTip = "提示: 按 [V] 键可随时开关此面板；仅在主城安全区允许摆摊营业。";
+        FontManager.DrawTextWithShadow(footTip, winX + 14, winY + winH - 22, 11, Color.DarkGray, Color.Black);
+    }
 }
+
