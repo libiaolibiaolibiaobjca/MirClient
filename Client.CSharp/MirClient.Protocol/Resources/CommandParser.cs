@@ -38,6 +38,8 @@ public enum ParsedCommandType
     Fury,       // @fury 真气怒气槽调试
     Boss,       // @boss 世界教主刷新/击杀/战况
     Drop,       // @drop 极品神装与大爆测试
+    Mount,      // @mount 坐骑上下马与名驹切换
+    Charge,     // @charge 战马冲锋破军神技
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1241,6 +1243,43 @@ public static class CommandParser
                 };
             }
 
+            case "mount":
+            case "坐骑":
+            case "战马":
+            case "马":
+            case "ride":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "toggle";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Mount,
+                    SubAction = sub,
+                    TargetName = extra,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "switch" or "切换" => $"切换坐骑为【{extra}】",
+                        "ride" or "上马" => "翻身上马，极速驰骋",
+                        "down" or "下马" => "勒马下马，步战厮杀",
+                        _ => "上下马快捷切换 (Ctrl+M / M)"
+                    }
+                };
+            }
+
+            case "charge":
+            case "冲锋":
+            case "破军":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Charge,
+                    RawInput = input,
+                    Message = "施展铁骑破军【战马冲锋】(Ctrl+F)"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1251,7 +1290,9 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
-                              "  @boss spawn/kill/status - 世界教主召唤/处决大爆/伤害战况\n" +
+                              "  @mount [ride/down/switch 名驹] - 战马坐骑上下马与切换 (Ctrl+M / M)\n" +
+                              "  @charge                       - 施展战马冲锋破军神技 (Ctrl+F)\n" +
+                              "  @boss spawn/kill/status       - 世界教主召唤/处决大爆/伤害战况\n" +
                               "  @drop <物品名> [极品点数] - 调试生成极品神装大爆\n" +
                               "  @make <物品名> [数量] - 刷取神装或药水 (如 @make 裁决之杖, @make 强效太阳水)\n" +
                               "  @gold <数值>          - 充值随身金币 (如 @gold 100000)\n" +

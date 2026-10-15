@@ -380,7 +380,7 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
-        // Ctrl+W / Ctrl+E / Ctrl+S 英雄随从与怒气合击快捷指令
+        // Ctrl+W / Ctrl+E / Ctrl+S 英雄随从与怒气合击快捷指令，Ctrl+M / M 上下马，Ctrl+F 战马冲锋
         bool isCtrlDown = Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl);
         if (isCtrlDown)
         {
@@ -396,6 +396,18 @@ public class GameScene : IScene
             {
                 TriggerJointAttack();
             }
+            else if (Raylib.IsKeyPressed(KeyboardKey.M))
+            {
+                ToggleMount();
+            }
+            else if (Raylib.IsKeyPressed(KeyboardKey.F))
+            {
+                TriggerCavalryCharge();
+            }
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.M) && !_isChatInputActive)
+        {
+            ToggleMount();
         }
 
         // 实时同步自身血量与地图至组队列表
@@ -417,6 +429,7 @@ public class GameScene : IScene
             {
                 targetAction = _isRunning ? HumanActionType.Run : HumanActionType.Walk;
                 float speed = _isRunning ? _moveSpeed * 1.8f : _moveSpeed;
+                speed *= MountManager.Instance.SpeedMultiplier; // 坐骑战马极速倍率
                 Vector2 step = Vector2.Normalize(diff) * speed * dt;
                 if (step.Length() > dist)
                     _playerTilePos = _targetTilePos;
@@ -647,6 +660,7 @@ public class GameScene : IScene
         // 推进全屏法术光效与技能冷却倒计时
         _skillFx.Update(dt);
         _skillCd.Update(dt);
+        MountManager.Instance.Update(dt);
 
         // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
         if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
@@ -1556,6 +1570,22 @@ public class GameScene : IScene
 
     private void DrawPlayer(Vector2 center)
     {
+        // 0. 乘骑状态：脚底灵兽战骑光环与奔马残影
+        if (MountManager.Instance.IsMounted)
+        {
+            float mTime = (float)Raylib.GetTime();
+            float mPulse = 1.0f + 0.15f * MathF.Sin(mTime * 6f);
+            Color mountCol = MountManager.Instance.CurrentMount switch
+            {
+                MountType.RedHare       => new Color((byte)255, (byte)70, (byte)30, (byte)150),
+                MountType.SnowDragon    => new Color((byte)120, (byte)210, (byte)255, (byte)160),
+                MountType.ShadowPanther => new Color((byte)180, (byte)50, (byte)230, (byte)150),
+                _                       => new Color((byte)220, (byte)180, (byte)50, (byte)140)
+            };
+            Raylib.DrawEllipse((int)center.X, (int)(center.Y + 4), (int)(22 * mPulse), (int)(11 * mPulse), mountCol);
+            Raylib.DrawEllipse((int)center.X, (int)(center.Y + 4), 16, 8, new Color((byte)0, (byte)0, (byte)0, (byte)140));
+        }
+
         // 1. 盛大十周年原生角色模型复合渲染 (Hum + Hair + Weapon)
         int baseFrame = HumanAction.CalculateBaseFrame(_currentAction, _direction, _motionStep);
         int bodyFrame = _dressId * HumanAction.HUMANFRAME + baseFrame;
@@ -1643,7 +1673,7 @@ public class GameScene : IScene
             FontManager.DrawTextWithShadow(stallSign, signX + 6, signY + 2, 11, Color.Yellow, Color.Black);
         }
 
-        string name = _playerName;
+        string name = MountManager.Instance.IsMounted ? $"{_playerName} [骑: {MountManager.Instance.CurrentMountDef.Name}]" : _playerName;
         int nameW = FontManager.MeasureText(name, 12);
         FontManager.DrawTextWithShadow(name, (int)(center.X - nameW / 2f), headY - 16, 12, Color.Yellow, Color.Black);
 
@@ -1807,6 +1837,9 @@ public class GameScene : IScene
 
         // 2.5 英雄伙伴头像状态与合击怒气蓄能槽 (嵌合于左侧血球与中央聊天框之间的局部区域 boardX + 116)
         RenderHeroAndFuryHud(boardX, boardY);
+
+        // 2.6 灵兽战骑状态与马术冲刺破军 HUD 标牌
+        RenderMountBadge(boardX, boardY);
 
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
@@ -2798,6 +2831,28 @@ public class GameScene : IScene
                 _chatLogs.Add($"[极品掉落] 脚下天降神兵【{customDrop.DisplayName}】({rolled.Rarity})！");
                 _skillFx.SpawnLevelUp(_playerTilePos);
                 SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                break;
+            }
+
+            case ParsedCommandType.Mount:
+            {
+                if (cmd.SubAction == "switch")
+                {
+                    MountType next = (MountType)(((int)MountManager.Instance.CurrentMount + 1) % 4);
+                    MountManager.Instance.SwitchMount(next);
+                    _chatLogs.Add($"[坐骑系统] 切换出战灵兽: 【{MountManager.Instance.CurrentMountDef.Name}】 移速加成+{MountManager.Instance.CurrentMountDef.SpeedBonus:P0} ({MountManager.Instance.CurrentMountDef.Description})");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    ToggleMount();
+                }
+                break;
+            }
+
+            case ParsedCommandType.Charge:
+            {
+                TriggerCavalryCharge();
                 break;
             }
 
@@ -5328,6 +5383,145 @@ public class GameScene : IScene
         string bossTitle = $"【{boss.BossName}】(Lv.{boss.Level}){rageStr}  {boss.CurrentHp:#,##0} / {boss.MaxHp:#,##0} ({hpRate:P0})";
         int textW = FontManager.MeasureText(bossTitle, 11);
         FontManager.DrawTextWithShadow(bossTitle, barX + (barW - textW) / 2, barY + 4, 11, Color.White, Color.Black);
+    }
+
+    private void ToggleMount()
+    {
+        var res = MountManager.Instance.ToggleMount();
+        _chatLogs.Add($"[坐骑系统] {res.Message}");
+        if (res.Success)
+        {
+            _skillFx.SpawnLevelUp(_playerTilePos);
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        }
+        else
+        {
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+    }
+
+    private void TriggerCavalryCharge()
+    {
+        if (!MountManager.Instance.IsMounted)
+        {
+            _chatLogs.Add("[马术冲刺] 您尚未乘骑战马！按 M 或 Ctrl+M 上马后方可发动冲刺！");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        if (!MountManager.Instance.CanCharge)
+        {
+            _chatLogs.Add($"[马术冲刺] 战马冲锋冷却中，剩余 {MountManager.Instance.ChargeCooldownTimer:F1} 秒！");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        if (!MountManager.Instance.TryPerformCharge(_playerTilePos, _direction, (x, y) => IsCellBlocked(x, y), out Vector2 endTile, out _, out _, out string report))
+        {
+            _chatLogs.Add($"[马术冲刺] {report}");
+            return;
+        }
+
+        _playerTilePos = endTile;
+        _targetTilePos = endTile;
+        _cameraPixelPos = endTile * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+
+        int bonusDc = MountManager.Instance.BonusDc;
+        int chargeDmg = 180 + bonusDc * 15;
+        int hitCount = 0;
+
+        Vector2 dirNorm = _direction switch
+        {
+            0 => new Vector2(0, -1),
+            1 => new Vector2(1, -1),
+            2 => new Vector2(1, 0),
+            3 => new Vector2(1, 1),
+            4 => new Vector2(0, 1),
+            5 => new Vector2(-1, 1),
+            6 => new Vector2(-1, 0),
+            _ => new Vector2(-1, -1)
+        };
+
+        lock (_entities)
+        {
+            foreach (var entity in _entities)
+            {
+                if (entity.Type == EntityType.Monster && !entity.IsDead)
+                {
+                    float dist = Vector2.Distance(entity.TilePos, _playerTilePos);
+                    if (dist <= 1.8f)
+                    {
+                        ApplyMonsterDamage(entity, chargeDmg, "战马冲锋破军");
+                        Vector2 knockbackPos = entity.TilePos + dirNorm;
+                        if (!IsCellBlocked((int)knockbackPos.X, (int)knockbackPos.Y))
+                        {
+                            entity.TilePos = knockbackPos;
+                        }
+                        hitCount++;
+                    }
+                }
+            }
+        }
+
+        if (WorldBossManager.Instance.IsAlive)
+        {
+            float bossDist = Vector2.Distance(WorldBossManager.Instance.TilePos, _playerTilePos);
+            if (bossDist <= 2.2f)
+            {
+                WorldBossManager.Instance.ApplyDamage(_playerName, chargeDmg, out _, out _);
+                hitCount++;
+            }
+        }
+
+        _skillFx.SpawnFireSword(_playerTilePos, _direction);
+        SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+        _chatLogs.Add($"[马术冲刺] {report} 践踏穿透敌群造成 {chargeDmg} 点穿透伤害！(破军击退目标: {hitCount})");
+    }
+
+    private void RenderMountBadge(int boardX, int boardY)
+    {
+        var mount = MountManager.Instance;
+        int badgeX = boardX + 16;
+        int badgeY = boardY - 30;
+        int badgeW = 96;
+        int badgeH = 24;
+
+        Rectangle badgeRec = new(badgeX, badgeY, badgeW, badgeH);
+        Raylib.DrawRectangleRec(badgeRec, new Color((byte)18, (byte)15, (byte)12, (byte)220));
+
+        Color borderCol = mount.IsMounted ? Color.Gold : Color.DarkGray;
+        Raylib.DrawRectangleLines(badgeX, badgeY, badgeW, badgeH, borderCol);
+
+        string mName = mount.CurrentMountDef.Name;
+        if (mount.IsMounted)
+        {
+            string cdText = mount.CanCharge ? "冲锋就绪" : $"{mount.ChargeCooldownTimer:F1}s";
+            FontManager.DrawTextWithShadow($"[骑]{mName}", badgeX + 4, badgeY + 2, 10, Color.Gold, Color.Black);
+            Color cdCol = mount.CanCharge ? Color.Lime : Color.Red;
+            FontManager.DrawText(cdText, badgeX + 48, badgeY + 12, 9, cdCol);
+        }
+        else
+        {
+            FontManager.DrawTextWithShadow($"[步]{mName}", badgeX + 4, badgeY + 2, 10, Color.Gray, Color.Black);
+            FontManager.DrawText("[M/Ctrl+M上马]", badgeX + 4, badgeY + 12, 9, Color.DarkGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        if (Raylib.CheckCollisionPointRec(mPos, badgeRec))
+        {
+            Raylib.DrawRectangleLinesEx(badgeRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                ToggleMount();
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+            {
+                MountType next = (MountType)(((int)mount.CurrentMount + 1) % 4);
+                mount.SwitchMount(next);
+                _chatLogs.Add($"[坐骑系统] 切换出战灵兽: 【{mount.CurrentMountDef.Name}】 移速加成+{mount.CurrentMountDef.SpeedBonus:P0}");
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        }
     }
 }
 
