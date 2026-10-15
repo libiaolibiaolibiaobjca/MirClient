@@ -23,6 +23,7 @@ public enum ParsedCommandType
     Group,      // @group 组队管理与模拟队员
     Guild,      // @guild 行会与称号管理
     Stall,      // @stall 摆摊与市场集市
+    Siege,      // @siege 沙巴克攻城战与皇宫争夺
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -776,6 +777,118 @@ public static class CommandParser
                 }
             }
 
+            case "siege":
+            case "攻城":
+            case "沙巴克":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Siege,
+                        SubAction = "status",
+                        RawInput = input,
+                        Message = "沙巴克攻城指令: @siege start [秒数], @siege stop, @siege status, @siege palace, @siege gate <伤害>"
+                    };
+                }
+
+                string subAction = parts[1].ToLowerInvariant();
+                switch (subAction)
+                {
+                    case "start":
+                    case "开启":
+                    case "开战":
+                    {
+                        int duration = 600;
+                        if (parts.Length >= 3 && int.TryParse(parts[2], out int dur))
+                        {
+                            duration = dur;
+                        }
+
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Siege,
+                            SubAction = "start",
+                            Amount = duration,
+                            RawInput = input,
+                            Message = $"发起沙巴克攻城战，战事时长: {duration} 秒！"
+                        };
+                    }
+
+                    case "stop":
+                    case "停止":
+                    case "停战":
+                    case "结算":
+                    {
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Siege,
+                            SubAction = "stop",
+                            RawInput = input,
+                            Message = "停止沙巴克攻城战并进行终局加冕结算"
+                        };
+                    }
+
+                    case "status":
+                    case "战况":
+                    case "战报":
+                    {
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Siege,
+                            SubAction = "status",
+                            RawInput = input,
+                            Message = "查看沙巴克攻城即时战报"
+                        };
+                    }
+
+                    case "palace":
+                    case "皇宫":
+                    case "夺旗":
+                    {
+                        string guild = parts.Length >= 3 ? parts[2] : "";
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Siege,
+                            SubAction = "palace",
+                            TargetName = guild,
+                            RawInput = input,
+                            Message = $"突入沙巴克皇宫争夺中央控制权{(string.IsNullOrEmpty(guild) ? "" : $" (行会: {guild})")}"
+                        };
+                    }
+
+                    case "gate":
+                    case "城门":
+                    case "攻门":
+                    {
+                        int dmg = 1000;
+                        if (parts.Length >= 3 && int.TryParse(parts[2], out int d))
+                        {
+                            dmg = d;
+                        }
+
+                        string guild = parts.Length >= 4 ? parts[3] : "";
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Siege,
+                            SubAction = "gate",
+                            Amount = dmg,
+                            TargetName = guild,
+                            RawInput = input,
+                            Message = $"对沙巴克城门造成 {dmg} 点破坏{(string.IsNullOrEmpty(guild) ? "" : $" (行会: {guild})")}"
+                        };
+                    }
+
+                    default:
+                        return new ParsedCommand
+                        {
+                            Type = ParsedCommandType.Unknown,
+                            RawInput = input,
+                            Message = $"未知攻城子指令【{parts[1]}】！可选: start, stop, status, palace, gate"
+                        };
+                }
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -802,6 +915,10 @@ public static class CommandParser
                               "  @stall add <物品> <价>- 将背包物品上架至摊位货架\n" +
                               "  @stall buy <槽位编号> - 购买货架上的指定商品\n" +
                               "  @stall shout          - 发起高亮公屏摆摊叫卖喊话\n" +
+                              "  @siege start [秒数]   - 发起沙巴克攻城战 (如 @siege start 600)\n" +
+                              "  @siege stop           - 终局结算沙巴克新霸主加冕\n" +
+                              "  @siege palace [行会]  - 突入皇宫大殿抢占旗帜据点\n" +
+                              "  @siege gate <伤害>    - 攻击破坏沙巴克城门\n" +
                               "  @kill                 - 角色自尽测试黑白死亡屏\n" +
                               "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +

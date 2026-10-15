@@ -50,6 +50,7 @@ public class GameScene : IScene
     private bool _showGroupWindow = false;
     private bool _showGuildWindow = false;
     private bool _showStallWindow = false;
+    private bool _showSiegeWindow = false;
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -156,6 +157,7 @@ public class GameScene : IScene
         _chatLogs.Add("[系统] 组队协同: 按 [P] 键开启组队面板与左侧浮窗，享有 120% 组队经验加成 (@group)。");
         _chatLogs.Add("[系统] 行会争霸: 按 [G] 键开启行会面板，头顶渲染双层尊贵行会称号 (@guild)。");
         _chatLogs.Add("[系统] 主城集市: 按 [V] 键开启主城安全区摆摊叫卖面板 (@stall 设摊/上架/叫卖)。");
+        _chatLogs.Add("[系统] 沙城争霸: 按 [K] 键开启沙巴克攻城战况面板，争夺皇宫巅峰荣耀 (@siege 开战/皇宫/攻门)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
         _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
@@ -344,6 +346,13 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
+        // K: 开关沙巴克攻城战况面板
+        if (Raylib.IsKeyPressed(KeyboardKey.K))
+        {
+            _showSiegeWindow = !_showSiegeWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
         // 实时同步自身血量与地图至组队列表
         if (GroupManager.Instance.HasGroup)
         {
@@ -479,6 +488,13 @@ public class GameScene : IScene
 
         // 推进地表掉落物寿命与自动超时清理
         _groundItemManager.Update(dt);
+
+        // 推进沙巴克攻城战时钟与皇宫占领计时
+        SabukSiegeManager.Instance.Update(dt, report =>
+        {
+            _chatLogs.Add(report);
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        });
 
         // 拾取脚下或周围战利品 (按空格键主动拾取，或移动走近时自动踩取)
         bool isSpacePressed = Raylib.IsKeyPressed(KeyboardKey.Space);
@@ -731,6 +747,18 @@ public class GameScene : IScene
         if (_showStallWindow)
         {
             RenderStallWindow(screenW, screenH);
+        }
+
+        // 5.5 渲染沙巴克攻城右上角战场 HUD
+        if (SabukSiegeManager.Instance.CurrentPhase == SiegePhase.Fighting)
+        {
+            RenderSiegeHud(screenW, screenH);
+        }
+
+        // 5.6 渲染 K 键沙巴克攻城战况与皇宫争霸面板
+        if (_showSiegeWindow)
+        {
+            RenderSiegeWindow(screenW, screenH);
         }
 
         // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
@@ -1314,10 +1342,17 @@ public class GameScene : IScene
         Raylib.DrawRectangle(hpBarX, hpBarY, (int)(hpBarW * hpRate), hpBarH, Color.Green);
         Raylib.DrawRectangleLines(hpBarX, hpBarY, hpBarW, hpBarH, Color.Gold);
 
-        // 盛大原版经典双层头顶排版：第一行金色行会称号，第二行角色名，第三行生命血条
+        // 盛大原版经典双层头顶排版：第一行金色行会称号与沙巴克霸主加冕，第二行角色名，第三行生命血条
         string guildTitle = GuildManager.Instance.GetTitleForPlayer(_playerName);
         if (!string.IsNullOrEmpty(guildTitle))
         {
+            if (SabukSiegeManager.Instance.IsSabukLordGuild(GuildManager.Instance.GuildName))
+            {
+                var myMember = GuildManager.Instance.Members.FirstOrDefault(m => m.Name == _playerName);
+                string sabukPrefix = SabukSiegeManager.Instance.FormatSabukTitle(GuildManager.Instance.GuildName, myMember?.RankTitle ?? "帮众");
+                guildTitle = sabukPrefix + guildTitle;
+            }
+
             int titleW = FontManager.MeasureText(guildTitle, 11);
             FontManager.DrawTextWithShadow(guildTitle, (int)(center.X - titleW / 2f), headY - 32, 11, Color.Gold, Color.Black);
         }
@@ -2109,6 +2144,83 @@ public class GameScene : IScene
                 else
                 {
                     _showStallWindow = !_showStallWindow;
+                }
+                break;
+
+            case ParsedCommandType.Siege:
+                if (cmd.SubAction == "start")
+                {
+                    if (SabukSiegeManager.Instance.StartSiege(cmd.Amount, out string startMsg))
+                    {
+                        _chatLogs.Add(startMsg);
+                        _showSiegeWindow = true;
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[攻城战] 开启失败: {startMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "stop")
+                {
+                    if (SabukSiegeManager.Instance.StopSiege(out string stopMsg))
+                    {
+                        _chatLogs.Add(stopMsg);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[攻城战] 结算失败: {stopMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "palace")
+                {
+                    string guild = !string.IsNullOrEmpty(cmd.TargetName) ? cmd.TargetName : GuildManager.Instance.GuildName;
+                    if (string.IsNullOrEmpty(guild))
+                    {
+                        _chatLogs.Add("[攻城战] 请先加入行会或指定行会名称！(@siege palace <行会名>)");
+                    }
+                    else
+                    {
+                        if (SabukSiegeManager.Instance.OccupyPalace(guild, out string occMsg))
+                        {
+                            _chatLogs.Add(occMsg);
+                            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[攻城战] 占领失败: {occMsg}");
+                        }
+                    }
+                }
+                else if (cmd.SubAction == "gate")
+                {
+                    string guild = !string.IsNullOrEmpty(cmd.TargetName) ? cmd.TargetName : GuildManager.Instance.GuildName;
+                    if (SabukSiegeManager.Instance.DamageGate(guild, cmd.Amount, out string gateMsg))
+                    {
+                        _chatLogs.Add(gateMsg);
+                        SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[攻城战] 攻门失败: {gateMsg}");
+                    }
+                }
+                else if (cmd.SubAction == "status")
+                {
+                    var sm = SabukSiegeManager.Instance;
+                    string phaseStr = sm.CurrentPhase switch
+                    {
+                        SiegePhase.Fighting => $"交火激战中 (剩余 {(int)sm.RemainingBattleTime} 秒)",
+                        SiegePhase.Prepare => "战前备战中",
+                        _ => "和平休战期"
+                    };
+                    string gateStr = sm.IsGateDestroyed ? "已击溃坍塌" : $"{sm.GateCurrentHp}/{sm.GateMaxHp}";
+                    _chatLogs.Add($"[沙城战报] 状态: {phaseStr} | 沙城霸主: 【{sm.CurrentLordGuild}】 | 皇宫据守: 【{sm.PalaceOccupierGuild}】 | 城门坚固度: {gateStr}");
+                }
+                else
+                {
+                    _showSiegeWindow = !_showSiegeWindow;
                 }
                 break;
 
@@ -3726,5 +3838,219 @@ public class GameScene : IScene
         string footTip = "提示: 按 [V] 键可随时开关此面板；仅在主城安全区允许摆摊营业。";
         FontManager.DrawTextWithShadow(footTip, winX + 14, winY + winH - 22, 11, Color.DarkGray, Color.Black);
     }
+
+    private void RenderSiegeHud(int screenW, int screenH)
+    {
+        var sm = SabukSiegeManager.Instance;
+        int hudW = 200;
+        int hudH = 96;
+        int hudX = screenW - hudW - 12;
+        int hudY = 165; // 在小地图下方
+
+        // 盛大原版：烽火沙城右上角战场 HUD (深黑曜石背景与古典赤金边框)
+        Rectangle hudRect = new(hudX, hudY, hudW, hudH);
+        Raylib.DrawRectangleRec(hudRect, new Color(18, 14, 12, 235));
+        Raylib.DrawRectangleLinesEx(hudRect, 1, new Color(220, 70, 40, 255));
+        Raylib.DrawRectangle(hudX + 1, hudY + 1, hudW - 2, 22, new Color(60, 25, 15, 255));
+
+        // 标题与倒计时
+        FontManager.DrawTextWithShadow("【 烽火沙城 · 争霸交锋 】", hudX + 10, hudY + 5, 11, Color.Gold, Color.Black);
+        int mins = (int)(sm.RemainingBattleTime / 60);
+        int secs = (int)(sm.RemainingBattleTime % 60);
+        string timeStr = $"{mins:D2}:{secs:D2}";
+        FontManager.DrawTextWithShadow(timeStr, hudX + hudW - 46, hudY + 5, 11, Color.Yellow, Color.Black);
+
+        // 城门坚固度条
+        int barY = hudY + 28;
+        FontManager.DrawTextWithShadow("城门防御:", hudX + 8, barY, 10, Color.LightGray, Color.Black);
+        int barW = 120;
+        int barH = 8;
+        int barX = hudX + 68;
+        Raylib.DrawRectangle(barX, barY + 2, barW, barH, Color.Black);
+        if (sm.IsGateDestroyed)
+        {
+            FontManager.DrawTextWithShadow("已击溃(可直攻皇宫)", barX, barY - 1, 10, Color.Red, Color.Black);
+        }
+        else
+        {
+            float rate = Math.Clamp((float)sm.GateCurrentHp / sm.GateMaxHp, 0f, 1f);
+            Raylib.DrawRectangle(barX, barY + 2, (int)(barW * rate), barH, Color.Green);
+            Raylib.DrawRectangleLines(barX, barY + 2, barW, barH, Color.Gold);
+        }
+
+        // 皇宫当前归属
+        int palY = barY + 20;
+        string palOwner = !string.IsNullOrEmpty(sm.PalaceOccupierGuild) ? sm.PalaceOccupierGuild : "无行会占领";
+        FontManager.DrawTextWithShadow($"皇宫据守: 【{palOwner}】", hudX + 8, palY, 11, Color.Yellow, Color.Black);
+
+        // 霸主行会与按键提示
+        int footY = palY + 20;
+        FontManager.DrawTextWithShadow($"沙城霸主: 【{sm.CurrentLordGuild}】", hudX + 8, footY, 10, Color.Gold, Color.Black);
+        FontManager.DrawText("[K:战况]", hudX + hudW - 48, footY, 9, Color.SkyBlue);
+    }
+
+    private void RenderSiegeWindow(int screenW, int screenH)
+    {
+        var sm = SabukSiegeManager.Instance;
+        int winW = 420;
+        int winH = 450;
+        int winX = 280;
+        int winY = 60;
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 窗口背景：沙巴克城墙古岩石黑曜底质与赤红烈金边框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(20, 16, 15, 250));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, new Color(200, 60, 30, 255));
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 28, new Color(60, 24, 18, 255));
+
+        // 标题栏
+        string title = "【 玛法霸业 · 沙巴克攻城争霸战况 】";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 7, 13, Color.Gold, Color.Black);
+
+        // 关闭 [X] 按钮
+        Rectangle closeBtn = new(winX + winW - 26, winY + 5, 20, 20);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(180, 40, 40, 255) : new Color(80, 30, 30, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 21, winY + 7, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showSiegeWindow = false;
+        }
+
+        // 核心态势区
+        int infoY = winY + 36;
+        bool isFighting = sm.CurrentPhase == SiegePhase.Fighting;
+        string statusText = isFighting ? $"● 攻城激烈交火中 (倒计时 {(int)sm.RemainingBattleTime} 秒)" : "○ 和平休战期 (沙巴克城池祥和)";
+        FontManager.DrawTextWithShadow($"战事态势: {statusText}", winX + 14, infoY, 12, isFighting ? Color.Red : Color.Lime, Color.Black);
+
+        string lordText = $"当届沙城霸主: 【{sm.CurrentLordGuild}】 (享有全服城主税收与金冠称号)";
+        FontManager.DrawTextWithShadow(lordText, winX + 14, infoY + 20, 11, Color.Gold, Color.Black);
+
+        string palText = $"皇宫大殿归属: 【{sm.PalaceOccupierGuild}】  |  城门坚固度: {(sm.IsGateDestroyed ? "已击溃坍塌" : $"{sm.GateCurrentHp}/{sm.GateMaxHp}")}";
+        FontManager.DrawTextWithShadow(palText, winX + 14, infoY + 38, 11, Color.Yellow, Color.Black);
+
+        // 参战行会战功排行榜区域
+        int listY = infoY + 60;
+        int listH = 190;
+        Raylib.DrawRectangle(winX + 10, listY, winW - 20, listH, new Color(12, 10, 10, 240));
+        Raylib.DrawRectangleLines(winX + 10, listY, winW - 20, listH, new Color(80, 50, 40, 200));
+
+        // 列表表头
+        Raylib.DrawRectangle(winX + 11, listY + 1, winW - 22, 22, new Color(35, 20, 16, 255));
+        FontManager.DrawTextWithShadow("排名  参战行会    城门破损  击敌数  守殿时长  综合战功", winX + 18, listY + 5, 10, Color.LightGray, Color.Black);
+
+        var lb = sm.GetLeaderboard();
+        if (lb.Count == 0)
+        {
+            string emptyMsg = isFighting ? "大军正在集结，尚未产生前线战功！\n使用下方【攻击城门】或【抢占皇宫】积累战绩。" : "当前尚未开启攻城战！点击下方【发起攻城战】唤醒玛法英魂。";
+            FontManager.DrawTextWithShadow(emptyMsg, winX + 35, listY + 70, 11, Color.Gray, Color.Black);
+        }
+        else
+        {
+            int rowY = listY + 28;
+            for (int i = 0; i < lb.Count && i < 6; i++)
+            {
+                var s = lb[i];
+                Color rankCol = i == 0 ? Color.Gold : (i == 1 ? Color.SkyBlue : Color.White);
+                string rowText = $" {i + 1}    {s.GuildName,-8}  {s.GateDamage,7}    {s.KillCount,4}      {s.PalaceHoldSeconds,3}秒     {s.TotalScore,5}分";
+                FontManager.DrawTextWithShadow(rowText, winX + 16, rowY, 11, rankCol, Color.Black);
+                rowY += 24;
+            }
+        }
+
+        // 底部指挥操作栏
+        int btnY = listY + listH + 12;
+
+        // 按钮 1：发起攻城 / 终局结算
+        Rectangle toggleBtn = new(winX + 12, btnY, 92, 26);
+        bool toggleHover = Raylib.CheckCollisionPointRec(mousePos, toggleBtn);
+        Raylib.DrawRectangleRec(toggleBtn, toggleHover ? new Color(180, 50, 30, 255) : new Color(90, 30, 20, 230));
+        Raylib.DrawRectangleLines(winX + 12, btnY, 92, 26, toggleHover ? Color.Gold : new Color(200, 70, 40, 255));
+        string toggleTxt = isFighting ? "终局加冕" : "发起攻城战";
+        FontManager.DrawTextWithShadow(toggleTxt, winX + 24, btnY + 6, 11, toggleHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (toggleHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            if (isFighting)
+            {
+                if (sm.StopSiege(out string stopMsg))
+                {
+                    _chatLogs.Add(stopMsg);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+            }
+            else
+            {
+                if (sm.StartSiege(600f, out string startMsg))
+                {
+                    _chatLogs.Add(startMsg);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+            }
+        }
+
+        // 按钮 2：攻击城门 (模拟破门)
+        Rectangle gateBtn = new(winX + 112, btnY, 92, 26);
+        bool gateHover = Raylib.CheckCollisionPointRec(mousePos, gateBtn);
+        Raylib.DrawRectangleRec(gateBtn, gateHover ? new Color(130, 70, 30, 255) : new Color(65, 35, 15, 230));
+        Raylib.DrawRectangleLines(winX + 112, btnY, 92, 26, gateHover ? Color.Gold : Color.Orange);
+        FontManager.DrawTextWithShadow("攻击城门", winX + 132, btnY + 6, 11, gateHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (gateHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            string myGuild = GuildManager.Instance.HasGuild ? GuildManager.Instance.GuildName : "义军先锋";
+            if (sm.DamageGate(myGuild, 8888, out string gMsg))
+            {
+                _chatLogs.Add(gMsg);
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+            }
+            else
+            {
+                _chatLogs.Add($"[攻城战] {gMsg}");
+            }
+        }
+
+        // 按钮 3：抢占皇宫大殿
+        Rectangle palBtn = new(winX + 212, btnY, 92, 26);
+        bool palHover = Raylib.CheckCollisionPointRec(mousePos, palBtn);
+        Raylib.DrawRectangleRec(palBtn, palHover ? new Color(50, 90, 140, 255) : new Color(25, 45, 80, 230));
+        Raylib.DrawRectangleLines(winX + 212, btnY, 92, 26, palHover ? Color.Gold : Color.SkyBlue);
+        FontManager.DrawTextWithShadow("抢占皇宫", winX + 232, btnY + 6, 11, palHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (palHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            string myGuild = GuildManager.Instance.HasGuild ? GuildManager.Instance.GuildName : "傲视天下";
+            if (sm.OccupyPalace(myGuild, out string pMsg))
+            {
+                _chatLogs.Add(pMsg);
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+            else
+            {
+                _chatLogs.Add($"[攻城战] {pMsg}");
+            }
+        }
+
+        // 按钮 4：全服广播战况
+        Rectangle shoutBtn = new(winX + 312, btnY, 92, 26);
+        bool shoutHover = Raylib.CheckCollisionPointRec(mousePos, shoutBtn);
+        Raylib.DrawRectangleRec(shoutBtn, shoutHover ? new Color(90, 80, 20, 255) : new Color(45, 40, 10, 230));
+        Raylib.DrawRectangleLines(winX + 312, btnY, 92, 26, shoutHover ? Color.Gold : Color.Yellow);
+        FontManager.DrawTextWithShadow("战况战报", winX + 332, btnY + 6, 11, shoutHover ? Color.Yellow : Color.White, Color.Black);
+
+        if (shoutHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            string gateStr = sm.IsGateDestroyed ? "已坍塌" : $"{sm.GateCurrentHp}/{sm.GateMaxHp}";
+            string shout = $"【沙城战报】沙巴克霸主: 【{sm.CurrentLordGuild}】 | 皇宫据守: 【{sm.PalaceOccupierGuild}】 | 城门防御: {gateStr} | 状态: {(isFighting ? $"攻城激战中 (倒计时 {(int)sm.RemainingBattleTime}s)" : "和平期")}";
+            _chatLogs.Add(shout);
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 底部说明
+        string footTip = "提示: 按 [K] 键可随时开关此面板；沙城霸主会长头顶加冕金冠与全服特权。";
+        FontManager.DrawTextWithShadow(footTip, winX + 14, winY + winH - 22, 10, Color.DarkGray, Color.Black);
+    }
 }
+
 
