@@ -32,7 +32,9 @@ public class NpcProfile
         {
             new("[购买武器装备]", "@buy"),
             new("[出售闲置装备]", "@sell"),
-            new("[特修神兵利器]", "@repair"),
+            new("[普通修理装备]", "@repair"),
+            new("[神圣特殊修理]", "@repair_special"),
+            new("[黑铁淬炼武器升级]", "@upgrade"),
             new("[离开]", "@close")
         },
         Goods = new()

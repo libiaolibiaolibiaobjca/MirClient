@@ -41,6 +41,16 @@ public class Item
     public int MaxDura { get; set; }   // 最大持久度
     public int Count { get; set; } = 1;// 堆叠数量
 
+    // 经典铁匠铺武器升级与试刀开刃属性
+    public int UpgradeLevel { get; set; } = 0;       // 已升级次数 (+1 ~ +7)
+    public bool InUpgradeTrial { get; set; } = false; // 是否处于待开刃试刀状态
+    public int TrialBonusDc { get; set; } = 1;       // 试刀成功预期增加 DC
+    public int TrialSuccessRate { get; set; } = 60;  // 试刀成功率百分比 (30~90)
+    public int TrialPurityEffect { get; set; } = 0;  // 黑铁矿石对持久的影响 (-1, 0, +1)
+
+    // 持久归零损坏失效状态
+    public bool IsBroken => MaxDura > 0 && Dura <= 0;
+
     public Item Clone() => (Item)MemberwiseClone();
 
     // 预设经典传奇经典物品原型

@@ -1026,6 +1026,28 @@ public class GameScene : IScene
         _actionTimer = 0f;
         SoundManager.Instance.Play(SoundEffectType.AttackSwing);
 
+        // 武器挥刀攻击持久磨损
+        if (ItemUpgradeManager.Instance.WearWeaponOnAttack(_inv, out string wearMsg))
+        {
+            _chatLogs.Add(wearMsg);
+        }
+
+        // 检验当前武器是否处于待试刀开刃状态
+        var currentWep = _inv.EquippedItems[(int)EquipSlot.Weapon];
+        if (currentWep != null && currentWep.InUpgradeTrial)
+        {
+            if (ItemUpgradeManager.Instance.TryTrialBlade(currentWep, out bool isTrialSuccess, out string trialMsg))
+            {
+                _chatLogs.Add(trialMsg);
+                if (isTrialSuccess)
+                {
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    _skillFx.SpawnFireSword(_playerTilePos, _direction);
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                }
+            }
+        }
+
         // 若处于联机状态，向网关上报攻击指令 CM_HIT
         if (_engine.NetworkSession.IsConnected)
         {
@@ -1280,6 +1302,12 @@ public class GameScene : IScene
         _motionStep = 0;
         _actionTimer = 0f;
         SoundManager.Instance.Play(SoundEffectType.PlayerStruck);
+
+        // 衣服战甲受击防御持久磨损
+        if (ItemUpgradeManager.Instance.WearArmorOnStruck(_inv, out string armorWearMsg))
+        {
+            _chatLogs.Add(armorWearMsg);
+        }
     }
 
     private void DrawPlayer(Vector2 center)
@@ -2224,6 +2252,50 @@ public class GameScene : IScene
                 }
                 break;
 
+            case ParsedCommandType.Repair:
+                bool isSpecial = cmd.Enabled || cmd.SubAction == "special";
+                ItemUpgradeManager.Instance.RepairAll(_inv, ref _gold, isSpecial, out string repSummary);
+                _chatLogs.Add(repSummary);
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                break;
+
+            case ParsedCommandType.Upgrade:
+                var wep = _inv.EquippedItems[(int)EquipSlot.Weapon];
+                if (wep == null)
+                {
+                    _chatLogs.Add("[铁匠铺] 您当前并未手持任何武器，无法进行锻造淬炼！");
+                }
+                else
+                {
+                    int orePurity = cmd.Amount > 0 ? cmd.Amount : 60;
+                    int.TryParse(cmd.SubAction, out int jBonus);
+                    if (jBonus <= 0) jBonus = 10;
+
+                    if (ItemUpgradeManager.Instance.StartWeaponUpgrade(wep, orePurity, jBonus, out string upgMsg))
+                    {
+                        _chatLogs.Add(upgMsg);
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[铁匠铺] 锻造失败: {upgMsg}");
+                    }
+                }
+                break;
+
+            case ParsedCommandType.Durability:
+                var currentWeapon = _inv.EquippedItems[(int)EquipSlot.Weapon];
+                if (currentWeapon != null)
+                {
+                    currentWeapon.Dura = Math.Clamp(cmd.Amount, 0, currentWeapon.MaxDura);
+                    _chatLogs.Add($"[持久调试] 手持武器【{currentWeapon.Name}】持久度已调整为: {currentWeapon.Dura}/{currentWeapon.MaxDura} (损坏状态: {currentWeapon.IsBroken})");
+                }
+                else
+                {
+                    _chatLogs.Add("[持久调试] 您未佩戴武器！");
+                }
+                break;
+
             case ParsedCommandType.Help:
             case ParsedCommandType.Unknown:
                 foreach (var line in cmd.Message.Split('\n'))
@@ -2782,26 +2854,39 @@ public class GameScene : IScene
 
     private void RenderItemTooltip(Item item, int mouseX, int mouseY)
     {
-        int tipW = 160;
-        int tipH = 96;
+        int tipW = 175;
+        int tipH = 110;
         int tipX = Math.Min(Raylib.GetScreenWidth() - tipW - 10, mouseX + 12);
         int tipY = Math.Min(Raylib.GetScreenHeight() - tipH - 10, mouseY + 12);
 
         Raylib.DrawRectangle(tipX, tipY, tipW, tipH, new Color(10, 8, 6, 245));
-        Raylib.DrawRectangleLines(tipX, tipY, tipW, tipH, Color.Gold);
+        Raylib.DrawRectangleLines(tipX, tipY, tipW, tipH, item.IsBroken ? Color.Red : Color.Gold);
 
-        FontManager.DrawTextWithShadow(item.Name, tipX + 8, tipY + 6, 12, Color.Yellow, Color.Black);
-        FontManager.DrawText($"类型: {item.Type}", tipX + 8, tipY + 24, 11, Color.LightGray);
+        string titleStr = item.UpgradeLevel > 0 ? $"{item.Name} +{item.UpgradeLevel}" : item.Name;
+        FontManager.DrawTextWithShadow(titleStr, tipX + 8, tipY + 6, 12, item.IsBroken ? Color.Red : Color.Yellow, Color.Black);
+        FontManager.DrawText($"类型: {item.Type}", tipX + 8, tipY + 24, 10, Color.LightGray);
 
         if (item.Type == ItemType.Weapon)
-            FontManager.DrawText($"攻击力: {item.MinDc} - {item.MaxDc}", tipX + 8, tipY + 40, 11, Color.Lime);
+            FontManager.DrawText($"攻击力: {item.MinDc} - {item.MaxDc}", tipX + 8, tipY + 38, 10, Color.Lime);
         else if (item.Type == ItemType.Dress)
-            FontManager.DrawText($"防御力: {item.MinAc} - {item.MaxAc}", tipX + 8, tipY + 40, 11, Color.SkyBlue);
+            FontManager.DrawText($"防御力: {item.MinAc} - {item.MaxAc}", tipX + 8, tipY + 38, 10, Color.SkyBlue);
         else if (item.Type == ItemType.Potion)
-            FontManager.DrawText($"恢复: HP+{item.HpRestore} MP+{item.MpRestore}", tipX + 8, tipY + 40, 11, Color.Pink);
+            FontManager.DrawText($"恢复: HP+{item.HpRestore} MP+{item.MpRestore}", tipX + 8, tipY + 38, 10, Color.Pink);
 
-        FontManager.DrawText($"重量: {item.Weight}  持久: {item.Dura}/{item.MaxDura}", tipX + 8, tipY + 56, 10, Color.Gray);
-        FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 74, 10, Color.Gold);
+        Color duraColor = item.IsBroken ? Color.Red : (item.Dura <= 2 ? Color.Orange : Color.Gray);
+        string brokenTag = item.IsBroken ? " [破损失效]" : "";
+        FontManager.DrawText($"持久: {item.Dura}/{item.MaxDura}{brokenTag}", tipX + 8, tipY + 54, 10, duraColor);
+
+        if (item.InUpgradeTrial)
+        {
+            FontManager.DrawText("★ 待试刀开刃 (斩怪判定)", tipX + 8, tipY + 70, 10, Color.Magenta);
+        }
+        else
+        {
+            FontManager.DrawText("[鼠标双击穿戴/使用/卸下]", tipX + 8, tipY + 70, 10, Color.Gold);
+        }
+
+        FontManager.DrawText("铁匠铺支持普修/特修/淬炼", tipX + 8, tipY + 86, 9, Color.DarkGray);
     }
 
     private bool CheckNpcDialogCollision(Vector2 mousePos, int screenW, int screenH)
@@ -2957,7 +3042,33 @@ public class GameScene : IScene
                 _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“双击包裹中的闲置装备或药水即可直接折价出售！”");
                 break;
             case "@repair":
-                _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“少侠的神兵完好如初，无需特修！”");
+                ItemUpgradeManager.Instance.RepairAll(_inv, ref _gold, special: false, out string repMsg);
+                _chatLogs.Add($"[铁匠修理] {repMsg}");
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                break;
+            case "@repair_special":
+                ItemUpgradeManager.Instance.RepairAll(_inv, ref _gold, special: true, out string specMsg);
+                _chatLogs.Add($"[神圣特修] {specMsg}");
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                break;
+            case "@upgrade":
+                var currentWeapon = _inv.EquippedItems[(int)EquipSlot.Weapon];
+                if (currentWeapon == null)
+                {
+                    _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“少侠手中并未握持神兵，我无法为您开炉淬炼！”");
+                }
+                else
+                {
+                    if (ItemUpgradeManager.Instance.StartWeaponUpgrade(currentWeapon, 65, 12, out string upgMsg))
+                    {
+                        _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“{upgMsg}”");
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“{upgMsg}”");
+                    }
+                }
                 break;
             case "@tele_tomb":
                 ExecuteMapTransition("D021", new Vector2(180, 200), "老兵空间秘法传送");

@@ -66,7 +66,7 @@ public class InventoryManager
         int sum = 0;
         foreach (var eq in _equipment)
         {
-            if (eq != null) sum += selector(eq);
+            if (eq != null && !eq.IsBroken) sum += selector(eq);
         }
         return sum;
     }

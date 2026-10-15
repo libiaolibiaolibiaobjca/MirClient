@@ -24,6 +24,9 @@ public enum ParsedCommandType
     Guild,      // @guild 行会与称号管理
     Stall,      // @stall 摆摊与市场集市
     Siege,      // @siege 沙巴克攻城战与皇宫争夺
+    Repair,     // @repair 装备修理与特修
+    Upgrade,    // @upgrade 铁匠铺武器升级锻造
+    Durability, // @dura 修改武器持久度测试
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -889,6 +892,64 @@ public static class CommandParser
                 }
             }
 
+            case "repair":
+            case "修理":
+            case "特修":
+            {
+                bool special = parts.Length >= 2 && (parts[1].ToLowerInvariant() == "special" || parts[1] == "特修");
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Repair,
+                    Enabled = special,
+                    SubAction = special ? "special" : "normal",
+                    RawInput = input,
+                    Message = special ? "神圣特殊修理全身装备 (保持久上限)" : "普通修理全身装备"
+                };
+            }
+
+            case "upgrade":
+            case "升级":
+            case "锻造":
+            {
+                int purity = 60;
+                int jewelry = 10;
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int p))
+                {
+                    purity = p;
+                }
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int j))
+                {
+                    jewelry = j;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Upgrade,
+                    Amount = purity,
+                    SubAction = jewelry.ToString(),
+                    RawInput = input,
+                    Message = $"铁匠铺升级当前武器 (黑铁纯度: {purity}, 首饰战力: {jewelry})"
+                };
+            }
+
+            case "dura":
+            case "持久":
+            {
+                int dura = 0;
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int d))
+                {
+                    dura = d;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Durability,
+                    Amount = dura,
+                    RawInput = input,
+                    Message = $"修改当前手持武器持久度为: {dura}"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -919,6 +980,9 @@ public static class CommandParser
                               "  @siege stop           - 终局结算沙巴克新霸主加冕\n" +
                               "  @siege palace [行会]  - 突入皇宫大殿抢占旗帜据点\n" +
                               "  @siege gate <伤害>    - 攻击破坏沙巴克城门\n" +
+                              "  @repair [all/special] - 一键普通修理或特殊修理全身装备\n" +
+                              "  @upgrade [纯度] [首饰]- 铁匠铺升级淬炼当前手持武器\n" +
+                              "  @dura <数值>          - 修改手持武器当前持久度 (如 @dura 0 测试破损)\n" +
                               "  @kill                 - 角色自尽测试黑白死亡屏\n" +
                               "  @revive               - 原地满血满状态神圣复活\n" +
                               "  @level <等级>         - 调整等级 (如 @level 35)\n" +
