@@ -33,6 +33,9 @@ public enum ParsedCommandType
     Friend,     // @friend 好友管理与上下线
     Reputation, // @reputation 江湖声望查询与调整
     Badge,      // @badge 圣域荣誉勋章兑换与声望重铸
+    Hero,       // @hero 英雄伙伴召唤/收回/模式切换
+    Joint,      // @joint 释放主副心神合一合击绝技
+    Fury,       // @fury 真气怒气槽调试
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1132,6 +1135,66 @@ public static class CommandParser
                 };
             }
 
+            case "hero":
+            case "英雄":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "toggle";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+
+                CharacterJob heroJob = CharacterJob.Warrior;
+                if (extra.Contains("法")) heroJob = CharacterJob.Wizard;
+                else if (extra.Contains("道")) heroJob = CharacterJob.Taoist;
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Hero,
+                    SubAction = sub,
+                    TargetName = extra,
+                    TargetJob = heroJob,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "summon" or "出战" or "召唤" => "召唤副将英雄出战",
+                        "recall" or "收回" or "休息" => "召回副将英雄休养",
+                        "mode" or "模式" => "切换英雄行为模式 (跟随/攻击/守护)",
+                        "revive" or "复活" => "复活阵亡的副将英雄",
+                        "job" or "职业" => $"变更英雄职业为【{heroJob}】",
+                        _ => "英雄随从操作"
+                    }
+                };
+            }
+
+            case "joint":
+            case "合击":
+            case "合击绝技":
+            {
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Joint,
+                    RawInput = input,
+                    Message = "释放主副合击绝技 (Ctrl+S)"
+                };
+            }
+
+            case "fury":
+            case "怒气":
+            case "真气":
+            {
+                int val = 100;
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedVal))
+                {
+                    val = Math.Clamp(parsedVal, 0, 100);
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Fury,
+                    Amount = val,
+                    RawInput = input,
+                    Message = $"调整合击真气怒气槽为: {val}/100"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1160,6 +1223,9 @@ public static class CommandParser
                               "  @reputation [add <值>]- 查询或增加江湖声望\n" +
                               "  @badge exchange <编号>- 声望兑换荣誉勋章 (如 @badge exchange 43)\n" +
                               "  @badge reforge        - 消耗声望重铸佩戴勋章觉醒极品属性\n" +
+                              "  @hero summon/recall/mode - 英雄随从召唤/收回/模式切换 (Ctrl+W / Ctrl+E)\n" +
+                              "  @joint                - 释放主副心神合一震撼合击绝技 (Ctrl+S)\n" +
+                              "  @fury <0~100>         - 充盈或调整真气怒气蓄力槽\n" +
                               "  @stall on <招牌名>    - 在主城安全区支起摊位摆摊\n" +
                               "  @stall off            - 收摊并取回未售商品\n" +
                               "  @stall add <物品> <价>- 将背包物品上架至摊位货架\n" +

@@ -98,6 +98,9 @@ public class GameScene : IScene
     // 随身金币经济系统 (初始 50,000 金币)
     private int _gold = 50000;
 
+    // 角色职业 (默认战士)
+    private CharacterJob _playerJob = CharacterJob.Warrior;
+
     // NPC 对话与商店状态
     private enum NpcDialogMode { Dialog, Shop, Sell }
     private MapEntity? _activeNpc = null;
@@ -377,6 +380,24 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
+        // Ctrl+W / Ctrl+E / Ctrl+S 英雄随从与怒气合击快捷指令
+        bool isCtrlDown = Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl);
+        if (isCtrlDown)
+        {
+            if (Raylib.IsKeyPressed(KeyboardKey.W))
+            {
+                ToggleHeroSummon();
+            }
+            else if (Raylib.IsKeyPressed(KeyboardKey.E))
+            {
+                CycleHeroMode();
+            }
+            else if (Raylib.IsKeyPressed(KeyboardKey.S))
+            {
+                TriggerJointAttack();
+            }
+        }
+
         // 实时同步自身血量与地图至组队列表
         if (GroupManager.Instance.HasGroup)
         {
@@ -519,6 +540,37 @@ public class GameScene : IScene
             _chatLogs.Add(report);
             SoundManager.Instance.Play(SoundEffectType.LevelUp);
         });
+
+        // 推进英雄随从伙伴行为状态与协助战斗
+        if (HeroManager.Instance.IsSummoned && !HeroManager.Instance.IsDead)
+        {
+            var hero = HeroManager.Instance;
+            MapEntity? nearestMob = null;
+            float minHeroMobDist = 6.0f;
+            lock (_entities)
+            {
+                foreach (var ent in _entities)
+                {
+                    if (ent.Type == EntityType.Monster && !ent.IsDead)
+                    {
+                        float d = Vector2.Distance(hero.HeroTilePos, ent.TilePos);
+                        if (d < minHeroMobDist)
+                        {
+                            minHeroMobDist = d;
+                            nearestMob = ent;
+                        }
+                    }
+                }
+            }
+
+            if (hero.UpdateAi(dt, _playerTilePos, nearestMob?.TilePos, out _, out bool attacked, out int heroDmg))
+            {
+                if (attacked && nearestMob != null)
+                {
+                    ApplyMonsterDamage(nearestMob, heroDmg, hero.HeroJob == CharacterJob.Warrior ? "英雄烈火" : (hero.HeroJob == CharacterJob.Wizard ? "英雄雷电" : "英雄火符"));
+                }
+            }
+        }
 
         // 拾取脚下或周围战利品 (按空格键主动拾取，或移动走近时自动踩取)
         bool isSpacePressed = Raylib.IsKeyPressed(KeyboardKey.Space);
@@ -1028,6 +1080,15 @@ public class GameScene : IScene
         // 添加玩家自身
         renderItems.Add((_playerTilePos.Y, () => DrawPlayer(screenCenter)));
 
+        // 添加英雄随从伙伴
+        if (HeroManager.Instance.IsSummoned && !HeroManager.Instance.IsDead)
+        {
+            var hero = HeroManager.Instance;
+            Vector2 heroRel = hero.HeroTilePos - _playerTilePos;
+            Vector2 heroPixel = screenCenter + heroRel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            renderItems.Add((hero.HeroTilePos.Y, () => DrawHero(heroPixel)));
+        }
+
         // 严格按照脚底 Y 升序排列并依次绘制
         renderItems.Sort((a, b) => a.Y.CompareTo(b.Y));
         foreach (var item in renderItems)
@@ -1055,6 +1116,9 @@ public class GameScene : IScene
         _motionStep = 0;
         _actionTimer = 0f;
         SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+
+        // 攻击积攒合击怒气 (+5)
+        HeroManager.Instance.AddFury(5);
 
         // 武器挥刀攻击持久磨损
         if (ItemUpgradeManager.Instance.WearWeaponOnAttack(_inv, out string wearMsg))
@@ -1267,6 +1331,8 @@ public class GameScene : IScene
             ai.OnDamaged(damage);
         }
         _chatLogs.Add($"[战斗] 【{skillName}】重创【{target.Name}】造成 {damage} 点伤害！剩余生命: {target.Hp}/{target.MaxHp}");
+        // 造成伤害积攒怒气 (+2)
+        HeroManager.Instance.AddFury(2);
         if (target.IsDead)
         {
             HandleMonsterKill(target);
@@ -1332,6 +1398,9 @@ public class GameScene : IScene
         _motionStep = 0;
         _actionTimer = 0f;
         SoundManager.Instance.Play(SoundEffectType.PlayerStruck);
+
+        // 受创激荡怒气 (+3)
+        HeroManager.Instance.AddFury(3);
 
         // 衣服战甲受击防御持久磨损
         if (ItemUpgradeManager.Instance.WearArmorOnStruck(_inv, out string armorWearMsg))
@@ -1590,6 +1659,9 @@ public class GameScene : IScene
             FontManager.DrawTextWithShadow(hpStr, ballX + 10, ballY + bh / 2 - 8, 12, Color.White, Color.Black);
             FontManager.DrawTextWithShadow(mpStr, ballX + bw / 2 + 8, ballY + bh / 2 - 8, 12, Color.White, Color.Black);
         }
+
+        // 2.5 英雄伙伴头像状态与合击怒气蓄能槽 (嵌合于左侧血球与中央聊天框之间的局部区域 boardX + 116)
+        RenderHeroAndFuryHud(boardX, boardY);
 
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
@@ -2461,6 +2533,58 @@ public class GameScene : IScene
                 {
                     _showEquip = true; // 自动呼出 F10 查看勋章
                     _chatLogs.Add($"[荣誉勋章] 当前已开放 11~45 号全系列荣誉勋章！输入 @badge exchange <编号> 可兑换 (如 @badge exchange 43)。");
+                }
+                break;
+            }
+
+            case ParsedCommandType.Hero:
+            {
+                if (cmd.SubAction == "summon")
+                {
+                    HeroManager.Instance.HeroJob = cmd.TargetJob;
+                    if (!string.IsNullOrEmpty(cmd.TargetName)) HeroManager.Instance.HeroName = cmd.TargetName;
+                    if (cmd.Amount > 0) HeroManager.Instance.HeroLevel = cmd.Amount;
+                    var res = HeroManager.Instance.SummonHero(_playerTilePos);
+                    _chatLogs.Add($"[英雄GM] {res.Message}");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "dismiss")
+                {
+                    var res = HeroManager.Instance.RecallHero();
+                    _chatLogs.Add($"[英雄GM] {res.Message}");
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+                else if (cmd.SubAction == "mode")
+                {
+                    CycleHeroMode();
+                }
+                else if (cmd.SubAction == "full")
+                {
+                    HeroManager.Instance.ReviveHero();
+                    HeroManager.Instance.SetFury(HeroManager.MaxFury);
+                    _chatLogs.Add("[英雄GM] 英雄生命与合击怒气已全部拉满！即刻可发动合击绝技！");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    ToggleHeroSummon();
+                }
+                break;
+            }
+
+            case ParsedCommandType.Joint:
+            {
+                TriggerJointAttack();
+                break;
+            }
+
+            case ParsedCommandType.Fury:
+            {
+                HeroManager.Instance.SetFury(cmd.Amount);
+                _chatLogs.Add($"[怒气GM] 合击怒气值已调整为: {HeroManager.Instance.Fury}/{HeroManager.MaxFury}");
+                if (HeroManager.Instance.IsFuryReady)
+                {
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
                 }
                 break;
             }
@@ -4690,6 +4814,231 @@ public class GameScene : IScene
         // 面板底部快捷提示
         string closeTip = "快捷操作: 按 [F] 键可随时开启/关闭此社交名录面板。";
         FontManager.DrawTextWithShadow(closeTip, winX + 14, winY + winH - 18, 10, Color.DarkGray, Color.Black);
+    }
+
+    private void ToggleHeroSummon()
+    {
+        var hero = HeroManager.Instance;
+        if (hero.IsSummoned)
+        {
+            var res = hero.RecallHero();
+            _chatLogs.Add($"[英雄系统] {res.Message}");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+        else
+        {
+            var res = hero.SummonHero(_playerTilePos);
+            _chatLogs.Add($"[英雄系统] {res.Message}");
+            if (res.Success)
+            {
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        }
+    }
+
+    private void CycleHeroMode()
+    {
+        var hero = HeroManager.Instance;
+        if (!hero.IsSummoned)
+        {
+            _chatLogs.Add("[英雄系统] 您尚未召唤英雄随从！按 Ctrl+W 召唤出战。");
+            return;
+        }
+
+        var newMode = hero.ToggleMode();
+        string desc = newMode switch
+        {
+            HeroBehaviorMode.Follow => "【跟随模式】(寸步不离守护主人)",
+            HeroBehaviorMode.Attack => "【攻击模式】(主动向目标敌人冲杀)",
+            HeroBehaviorMode.Guard  => "【守护模式】(警戒驻守当前区域)",
+            _ => "【普通模式】"
+        };
+        _chatLogs.Add($"[英雄系统] 英雄战斗行为模式切换为: {desc}");
+        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+    }
+
+    private void TriggerJointAttack()
+    {
+        var hero = HeroManager.Instance;
+        MapEntity? target = null;
+        float minDist = 8.0f;
+        lock (_entities)
+        {
+            foreach (var ent in _entities)
+            {
+                if (ent.Type == EntityType.Monster && !ent.IsDead)
+                {
+                    float d = Vector2.Distance(_playerTilePos, ent.TilePos);
+                    if (d < minDist)
+                    {
+                        minDist = d;
+                        target = ent;
+                    }
+                }
+            }
+        }
+
+        int targetHp = target?.Hp ?? 500;
+        var (success, msg, finalDmg, skillDef) = hero.CastJointAttack(_playerJob, targetHp, 70);
+        if (success)
+        {
+            _skillFx.SpawnFireSword(_playerTilePos, _direction);
+            if (target != null)
+            {
+                _skillFx.SpawnThunder(target.TilePos);
+                _skillFx.SpawnFireSword(target.TilePos, 0);
+                ApplyMonsterDamage(target, finalDmg, skillDef?.Name ?? "合击绝技");
+            }
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            _chatLogs.Add($"[合击绝技] ★★★ {msg} ★★★");
+        }
+        else
+        {
+            _chatLogs.Add($"[合击绝技] {msg}");
+        }
+    }
+
+    private void DrawHero(Vector2 center)
+    {
+        var hero = HeroManager.Instance;
+        // 1. 英雄足底阴影
+        Raylib.DrawEllipse((int)center.X, (int)center.Y, 18, 9, new Color(0, 0, 0, 95));
+
+        // 2. 英雄角色身体贴图渲染
+        int humBase = HumanAction.CalculateBaseFrame(HumanActionType.Stand, hero.HeroDirection, 0);
+        Color heroColor = hero.HeroJob switch
+        {
+            CharacterJob.Warrior => new Color(255, 220, 180, 255),
+            CharacterJob.Wizard  => new Color(180, 210, 255, 255),
+            CharacterJob.Taoist  => new Color(180, 255, 200, 255),
+            _ => Color.White
+        };
+
+        var (humTex, hx, hy) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", humBase);
+        if (humTex.HasValue)
+        {
+            Raylib.DrawTexture(humTex.Value, (int)(center.X + hx), (int)(center.Y + hy), heroColor);
+        }
+        else
+        {
+            Raylib.DrawCircle((int)center.X, (int)center.Y - 20, 14, heroColor);
+        }
+
+        // 3. 英雄常驻血条
+        int barW = 38;
+        int barH = 4;
+        int barX = (int)(center.X - barW / 2f);
+        int barY = (int)(center.Y - 60);
+        Raylib.DrawRectangle(barX, barY, barW, barH, Color.Black);
+        float hpRate = Math.Clamp((float)hero.HeroHp / hero.HeroMaxHp, 0f, 1f);
+        Raylib.DrawRectangle(barX, barY, (int)(barW * hpRate), barH, Color.Lime);
+        Raylib.DrawRectangleLines(barX, barY, barW, barH, new Color(30, 30, 30, 220));
+
+        // 4. 英雄头顶品名与战斗模式
+        string modeStr = hero.Mode switch
+        {
+            HeroBehaviorMode.Follow => "[跟]",
+            HeroBehaviorMode.Attack => "[攻]",
+            HeroBehaviorMode.Guard  => "[守]",
+            _ => ""
+        };
+        string heroTitle = $"[英雄]{hero.HeroName} Lv.{hero.HeroLevel} {modeStr}";
+        int tW = FontManager.MeasureText(heroTitle, 11);
+        FontManager.DrawTextWithShadow(heroTitle, (int)(center.X - tW / 2f), barY - 14, 11, Color.Gold, Color.Black);
+    }
+
+    private void RenderHeroAndFuryHud(int boardX, int boardY)
+    {
+        int panelX = boardX + 116;
+        int panelY = boardY + 12;
+        int panelW = 72;
+        int panelH = 110;
+
+        Raylib.DrawRectangle(panelX, panelY, panelW, panelH, new Color(18, 16, 14, 230));
+        Raylib.DrawRectangleLines(panelX, panelY, panelW, panelH, new Color(75, 62, 40, 200));
+
+        var hero = HeroManager.Instance;
+        if (!hero.IsSummoned)
+        {
+            FontManager.DrawText("英雄随从", panelX + 12, panelY + 15, 11, Color.Gold);
+            FontManager.DrawText("未召唤", panelX + 16, panelY + 45, 12, Color.Gray);
+            FontManager.DrawText("[Ctrl+W]", panelX + 10, panelY + 75, 11, Color.DarkGray);
+            return;
+        }
+
+        string jobStr = hero.HeroJob switch
+        {
+            CharacterJob.Warrior => "战",
+            CharacterJob.Wizard  => "法",
+            CharacterJob.Taoist  => "道",
+            _ => "武"
+        };
+        FontManager.DrawText($"{hero.HeroName}", panelX + 6, panelY + 6, 11, Color.Gold);
+        FontManager.DrawText($"({jobStr} Lv.{hero.HeroLevel})", panelX + 6, panelY + 22, 11, Color.LightGray);
+
+        int hpBarX = panelX + 6;
+        int hpBarY = panelY + 38;
+        int hpBarW = panelW - 12;
+        int hpBarH = 8;
+        Raylib.DrawRectangle(hpBarX, hpBarY, hpBarW, hpBarH, Color.Black);
+        float hpRate = Math.Clamp((float)hero.HeroHp / hero.HeroMaxHp, 0f, 1f);
+        Raylib.DrawRectangle(hpBarX, hpBarY, (int)(hpBarW * hpRate), hpBarH, Color.Red);
+        Raylib.DrawRectangleLines(hpBarX, hpBarY, hpBarW, hpBarH, Color.DarkGray);
+
+        string modeDesc = hero.Mode switch
+        {
+            HeroBehaviorMode.Follow => "模式:跟随",
+            HeroBehaviorMode.Attack => "模式:攻击",
+            HeroBehaviorMode.Guard  => "模式:守护",
+            _ => "模式:普通"
+        };
+        Color modeCol = hero.Mode == HeroBehaviorMode.Attack ? Color.Red : (hero.Mode == HeroBehaviorMode.Follow ? Color.Lime : Color.Yellow);
+        FontManager.DrawText(modeDesc, panelX + 6, panelY + 50, 11, modeCol);
+
+        int furyBarX = panelX + 6;
+        int furyBarY = panelY + 68;
+        int furyBarW = panelW - 12;
+        int furyBarH = 16;
+        Raylib.DrawRectangle(furyBarX, furyBarY, furyBarW, furyBarH, new Color(10, 10, 25, 255));
+        float furyRate = Math.Clamp((float)hero.Fury / HeroManager.MaxFury, 0f, 1f);
+        int furyFillW = (int)(furyBarW * furyRate);
+        if (furyFillW > 0)
+        {
+            Color furyCol = hero.IsFuryReady ? Color.Gold : new Color(255, 140, 20, 255);
+            Raylib.DrawRectangle(furyBarX, furyBarY, furyFillW, furyBarH, furyCol);
+        }
+        Raylib.DrawRectangleLines(furyBarX, furyBarY, furyBarW, furyBarH, Color.Gold);
+
+        if (hero.IsFuryReady)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            Raylib.DrawRectangleLinesEx(new Rectangle(furyBarX - 1, furyBarY - 1, furyBarW + 2, furyBarH + 2), 1, new Color((byte)255, (byte)255, (byte)100, (byte)(255 * pulse)));
+            FontManager.DrawText("合击就绪!", panelX + 12, furyBarY + 2, 11, Color.White);
+            FontManager.DrawText("[Ctrl+S]", panelX + 15, panelY + 90, 11, Color.Yellow);
+        }
+        else
+        {
+            FontManager.DrawText($"{hero.Fury}/100", panelX + 16, furyBarY + 2, 11, Color.White);
+            FontManager.DrawText("按Ctrl+E切", panelX + 8, panelY + 90, 11, Color.DarkGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        Rectangle cardRec = new(panelX, panelY, panelW, panelH);
+        if (Raylib.CheckCollisionPointRec(mPos, cardRec))
+        {
+            Raylib.DrawRectangleLinesEx(cardRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                if (hero.IsFuryReady)
+                {
+                    TriggerJointAttack();
+                }
+                else
+                {
+                    CycleHeroMode();
+                }
+            }
+        }
     }
 }
 
