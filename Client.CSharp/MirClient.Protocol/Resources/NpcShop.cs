@@ -88,6 +88,21 @@ public class NpcProfile
         },
         Goods = new()
     };
+
+    public static NpcProfile CreateMartialInstructor() => new()
+    {
+        Name = "武馆教头",
+        Title = "比奇城天下第一武馆教头",
+        Greeting = "学武修心，尊师重道！凡玛法少年侠士，皆可在此寻觅良师或开山立派，传承绝艺！",
+        Options = new()
+        {
+            new("[拜师学艺 (28级以下)]", "@master_menu"),
+            new("[招收门徒 (35级或已出师)]", "@apprentice_menu"),
+            new("[武馆出师典礼 (徒弟35级)]", "@graduate_ceremony"),
+            new("[师门与声望名录 (按 F 键)]", "@social_info"),
+            new("[离开]", "@close")
+        }
+    };
 }
 
 /// <summary>
@@ -178,6 +193,7 @@ public static class NpcShop
     {
         if (npcName.Contains("铁匠")) return NpcProfile.CreateBlacksmith();
         if (npcName.Contains("药")) return NpcProfile.CreateAlchemist();
+        if (npcName.Contains("武馆") || npcName.Contains("教头")) return NpcProfile.CreateMartialInstructor();
         return NpcProfile.CreateVeteran();
     }
 }

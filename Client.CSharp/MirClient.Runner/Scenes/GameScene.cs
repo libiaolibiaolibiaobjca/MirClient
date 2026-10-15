@@ -51,6 +51,8 @@ public class GameScene : IScene
     private bool _showGuildWindow = false;
     private bool _showStallWindow = false;
     private bool _showSiegeWindow = false;
+    private bool _showSocialWindow = false;
+    private int _socialTab = 0; // 0: 我的好友, 1: 师门武馆
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -149,6 +151,20 @@ public class GameScene : IScene
         DeathManager.Instance.Reset();
         GroupManager.Instance.Reset();
         GuildManager.Instance.Reset();
+        SocialManager.Instance.Reset();
+        SocialManager.Instance.OnFriendOnlineStateChanged += (name, online) =>
+        {
+            _chatLogs.Add($"[好友系统] 您的好友【{name}】{(online ? "上线了" : "下线了")}！");
+        };
+        SocialManager.Instance.OnApprenticeLeveledUp += (name, lvl) =>
+        {
+            _chatLogs.Add($"[师徒武馆] 门下弟子【{name}】勤学苦练升至 {lvl} 级，向师门回馈声望！");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
+        // 预置好友模拟数据
+        SocialManager.Instance.AddFriend("昔日法神", CharacterJob.Wizard, 40, "盟重省", true);
+        SocialManager.Instance.AddFriend("无极道人", CharacterJob.Taoist, 38, "毒蛇山谷", false);
+
         SyncEquippedAppearance();
         _chatLogs.Add("[系统] 操作指引: 鼠标左键行走，右键奔跑，WASD 漫游，空格挥砍攻击。");
         _chatLogs.Add("[系统] 快捷法术: [F1] 雷电术；[F2] 烈火剑法；[F3] 治愈术；[F4] 火球术 (点击法术图标施法)。");
@@ -158,8 +174,9 @@ public class GameScene : IScene
         _chatLogs.Add("[系统] 行会争霸: 按 [G] 键开启行会面板，头顶渲染双层尊贵行会称号 (@guild)。");
         _chatLogs.Add("[系统] 主城集市: 按 [V] 键开启主城安全区摆摊叫卖面板 (@stall 设摊/上架/叫卖)。");
         _chatLogs.Add("[系统] 沙城争霸: 按 [K] 键开启沙巴克攻城战况面板，争夺皇宫巅峰荣耀 (@siege 开战/皇宫/攻门)。");
+        _chatLogs.Add("[系统] 师徒好友: 按 [F] 键开启好友与师门武馆社交面板 (@master 拜师/@apprentice 收徒/@graduate 出师)。");
         _chatLogs.Add("[系统] 快捷面板: [TAB] 开关小地图雷达；[F9] 包裹背包；[F10] 角色装备；[F11] 色彩解码模式。");
-        _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵) 开启对话与货架买卖；随身金币: {_gold:N0}。");
+        _chatLogs.Add($"[系统] NPC交互: 鼠标左键点击比奇城内 NPC (铁匠/药铺/老兵/武馆教头) 开启对话与货架买卖；随身金币: {_gold:N0}。");
 
         // 写入资源诊断日志 client_diagnostic.log
         try
@@ -350,6 +367,13 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.K))
         {
             _showSiegeWindow = !_showSiegeWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // F: 开关师徒与好友社交面板
+        if (Raylib.IsKeyPressed(KeyboardKey.F))
+        {
+            _showSocialWindow = !_showSocialWindow;
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
@@ -759,6 +783,12 @@ public class GameScene : IScene
         if (_showSiegeWindow)
         {
             RenderSiegeWindow(screenW, screenH);
+        }
+
+        // 5.7 渲染 F 键师徒武馆与好友社交面板
+        if (_showSocialWindow)
+        {
+            RenderSocialWindow(screenW, screenH);
         }
 
         // 6. 渲染 NPC 经典木纹羊皮纸对话框与商店货架
@@ -2296,6 +2326,101 @@ public class GameScene : IScene
                 }
                 break;
 
+            case ParsedCommandType.Master:
+            {
+                var res = SocialManager.Instance.BecomeApprentice(cmd.TargetName, _progression.Level);
+                _chatLogs.Add($"[拜师] {res.Message}");
+                if (res.Success)
+                {
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                break;
+            }
+
+            case ParsedCommandType.Apprentice:
+            {
+                var res = SocialManager.Instance.AcceptApprentice(cmd.TargetName, cmd.TargetJob, cmd.Amount, _progression.Level);
+                _chatLogs.Add($"[收徒] {res.Message}");
+                if (res.Success)
+                {
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                break;
+            }
+
+            case ParsedCommandType.Graduate:
+            {
+                if (string.IsNullOrEmpty(cmd.TargetName))
+                {
+                    var selfRes = SocialManager.Instance.SelfGraduate(_progression.Level);
+                    _chatLogs.Add($"[出师] {selfRes.Message}");
+                    if (selfRes.Success)
+                    {
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
+                else
+                {
+                    var gradRes = SocialManager.Instance.GraduateApprentice(cmd.TargetName);
+                    _chatLogs.Add($"[出师] {gradRes.Message}");
+                    if (gradRes.Success)
+                    {
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
+                break;
+            }
+
+            case ParsedCommandType.Friend:
+            {
+                if (cmd.SubAction == "add")
+                {
+                    var addRes = SocialManager.Instance.AddFriend(cmd.TargetName, cmd.TargetJob, cmd.Amount);
+                    _chatLogs.Add($"[好友] {addRes.Message}");
+                    if (addRes.Success) SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+                else if (cmd.SubAction == "del")
+                {
+                    var delRes = SocialManager.Instance.RemoveFriend(cmd.TargetName);
+                    _chatLogs.Add($"[好友] {delRes.Message}");
+                }
+                else if (cmd.SubAction == "online")
+                {
+                    var onRes = SocialManager.Instance.SetFriendOnline(cmd.TargetName, true);
+                    _chatLogs.Add($"[好友] {onRes.Message}");
+                }
+                else if (cmd.SubAction == "offline")
+                {
+                    var offRes = SocialManager.Instance.SetFriendOnline(cmd.TargetName, false);
+                    _chatLogs.Add($"[好友] {offRes.Message}");
+                }
+                else
+                {
+                    _showSocialWindow = !_showSocialWindow;
+                    _socialTab = 0;
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+                break;
+            }
+
+            case ParsedCommandType.Reputation:
+            {
+                if (cmd.SubAction == "add" && cmd.Amount > 0)
+                {
+                    SocialManager.Instance.AddReputation(cmd.Amount);
+                    _chatLogs.Add($"[江湖声望] 声望注入 +{cmd.Amount}！当前声望: {SocialManager.Instance.Reputation} 点");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    _chatLogs.Add($"[江湖声望] 当前声望: {SocialManager.Instance.Reputation} 点 (出师状态: {(SocialManager.Instance.IsGraduated ? "已出师" : "未出师")})");
+                }
+                break;
+            }
+
             case ParsedCommandType.Help:
             case ParsedCommandType.Unknown:
                 foreach (var line in cmd.Message.Split('\n'))
@@ -3085,6 +3210,39 @@ public class GameScene : IScene
             case "@legend":
                 _chatLogs.Add("[传说] 比奇老兵：“相传唯有攻陷沙巴克皇宫并立于城主雕像之巅的行会霸主，方能号令玛法！”");
                 break;
+            case "@master_menu":
+                _chatLogs.Add("[武馆教头] “凡等级未满 28 级者，可输入 @master <师父名> 拜入名师门下！”");
+                _showSocialWindow = true;
+                _socialTab = 1;
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                break;
+            case "@apprentice_menu":
+                _chatLogs.Add("[武馆教头] “凡达到 35 级或出师侠客，可输入 @apprentice <徒弟名> [等级] [职业] 开山收徒！”");
+                _showSocialWindow = true;
+                _socialTab = 1;
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                break;
+            case "@graduate_ceremony":
+                if (_progression.Level >= 35 && !SocialManager.Instance.IsGraduated && !string.IsNullOrEmpty(SocialManager.Instance.MasterName))
+                {
+                    var grad = SocialManager.Instance.SelfGraduate(_progression.Level);
+                    _chatLogs.Add(grad.Message);
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    _chatLogs.Add("[武馆教头] “徒弟达到 35 级即可在此举行出师典礼，输入 @graduate [徒弟名] 完成仪式！”");
+                    _showSocialWindow = true;
+                    _socialTab = 1;
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+                break;
+            case "@social_info":
+                _showSocialWindow = true;
+                _socialTab = 1;
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                break;
             case "@close":
             default:
                 _activeNpc = null;
@@ -3234,6 +3392,7 @@ public class GameScene : IScene
                     _entities.Add(new MapEntity(1001, "比奇老兵", EntityType.Npc, new Vector2(330, 268), appr: 0, maxHp: 1000));
                     _entities.Add(new MapEntity(1002, "比奇城铁匠", EntityType.Npc, new Vector2(331, 269), appr: 0, maxHp: 1000));
                     _entities.Add(new MapEntity(1003, "回春堂药铺老板", EntityType.Npc, new Vector2(329, 267), appr: 0, maxHp: 1000));
+                    _entities.Add(new MapEntity(1004, "比奇城武馆教头", EntityType.Npc, new Vector2(332, 267), appr: 0, maxHp: 1000));
 
                     var scarecrow = new MapEntity(2001, "稻草人", EntityType.Monster, new Vector2(333, 268), appr: 0, maxHp: 80);
                     var cat = new MapEntity(2002, "钉耙猫", EntityType.Monster, new Vector2(326, 267), appr: 1, maxHp: 100);
@@ -4161,6 +4320,285 @@ public class GameScene : IScene
         // 底部说明
         string footTip = "提示: 按 [K] 键可随时开关此面板；沙城霸主会长头顶加冕金冠与全服特权。";
         FontManager.DrawTextWithShadow(footTip, winX + 14, winY + winH - 22, 10, Color.DarkGray, Color.Black);
+    }
+
+    private void RenderSocialWindow(int screenW, int screenH)
+    {
+        var social = SocialManager.Instance;
+        int winW = 440;
+        int winH = 430;
+        int winX = 260;
+        int winY = 80;
+
+        Vector2 mousePos = Raylib.GetMousePosition();
+
+        // 窗口背景：玛法古风黑曜底质与双层鎏金边框
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(18, 16, 14, 250));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, new Color(180, 140, 60, 255));
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 28, new Color(48, 36, 22, 255));
+
+        // 标题栏
+        string title = "【 玛法江湖 · 师友名录与武馆传承 (F) 】";
+        FontManager.DrawTextWithShadow(title, winX + 12, winY + 7, 13, Color.Gold, Color.Black);
+
+        // 关闭 [X] 按钮
+        Rectangle closeBtn = new(winX + winW - 26, winY + 5, 20, 20);
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(180, 40, 40, 255) : new Color(80, 30, 30, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 21, winY + 7, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showSocialWindow = false;
+        }
+
+        // 双页签切换栏：【我的好友】与【师门传承】
+        int tabY = winY + 34;
+        Rectangle tab0Rect = new(winX + 14, tabY, 110, 26);
+        bool tab0Hover = Raylib.CheckCollisionPointRec(mousePos, tab0Rect);
+        Color tab0Bg = _socialTab == 0 ? new Color(75, 55, 30, 255) : (tab0Hover ? new Color(45, 35, 20, 230) : new Color(28, 22, 16, 200));
+        Raylib.DrawRectangleRec(tab0Rect, tab0Bg);
+        Raylib.DrawRectangleLines(winX + 14, tabY, 110, 26, _socialTab == 0 ? Color.Gold : Color.Gray);
+        string tab0Text = $"我的好友 ({social.Friends.Count})";
+        FontManager.DrawTextWithShadow(tab0Text, winX + 22, tabY + 6, 11, _socialTab == 0 ? Color.Yellow : Color.LightGray, Color.Black);
+        if (tab0Hover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _socialTab = 0;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        Rectangle tab1Rect = new(winX + 130, tabY, 110, 26);
+        bool tab1Hover = Raylib.CheckCollisionPointRec(mousePos, tab1Rect);
+        Color tab1Bg = _socialTab == 1 ? new Color(75, 55, 30, 255) : (tab1Hover ? new Color(45, 35, 20, 230) : new Color(28, 22, 16, 200));
+        Raylib.DrawRectangleRec(tab1Rect, tab1Bg);
+        Raylib.DrawRectangleLines(winX + 130, tabY, 110, 26, _socialTab == 1 ? Color.Gold : Color.Gray);
+        string tab1Text = $"师门武馆 (声望:{social.Reputation})";
+        FontManager.DrawTextWithShadow(tab1Text, winX + 138, tabY + 6, 11, _socialTab == 1 ? Color.Yellow : Color.LightGray, Color.Black);
+        if (tab1Hover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _socialTab = 1;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // 分页内容渲染
+        if (_socialTab == 0)
+        {
+            // ===== 【页签 0: 我的好友】 =====
+            int listY = tabY + 34;
+            int listH = 260;
+            Raylib.DrawRectangle(winX + 10, listY, winW - 20, listH, new Color(12, 10, 10, 240));
+            Raylib.DrawRectangleLines(winX + 10, listY, winW - 20, listH, new Color(70, 55, 35, 200));
+
+            // 表头
+            Raylib.DrawRectangle(winX + 11, listY + 1, winW - 22, 22, new Color(35, 28, 20, 255));
+            FontManager.DrawTextWithShadow("状态  角色名      职业  等级  所在地图      操作", winX + 18, listY + 5, 11, Color.LightGray, Color.Black);
+
+            var friends = social.Friends;
+            if (friends.Count == 0)
+            {
+                FontManager.DrawTextWithShadow("江湖路远，暂无结交好友。\n使用指令 @friend add <名> 或点击下方按钮结识道友！", winX + 35, listY + 100, 11, Color.Gray, Color.Black);
+            }
+            else
+            {
+                int rowY = listY + 28;
+                for (int i = 0; i < friends.Count && i < 8; i++)
+                {
+                    var f = friends[i];
+                    Color statusCol = f.IsOnline ? Color.Lime : Color.Gray;
+                    string statusTag = f.IsOnline ? "●" : "○";
+                    FontManager.DrawTextWithShadow(statusTag, winX + 22, rowY, 11, statusCol, Color.Black);
+
+                    Color jobCol = f.Job switch
+                    {
+                        CharacterJob.Warrior => Color.Gold,
+                        CharacterJob.Wizard  => Color.SkyBlue,
+                        CharacterJob.Taoist  => new Color(140, 255, 160, 255),
+                        _ => Color.White
+                    };
+
+                    FontManager.DrawTextWithShadow(f.Name, winX + 48, rowY, 11, jobCol, Color.Black);
+                    FontManager.DrawTextWithShadow(f.JobName, winX + 130, rowY, 11, Color.LightGray, Color.Black);
+                    FontManager.DrawTextWithShadow($"Lv.{f.Level}", winX + 172, rowY, 11, Color.Yellow, Color.Black);
+                    FontManager.DrawTextWithShadow(f.MapName, winX + 225, rowY, 11, Color.SkyBlue, Color.Black);
+
+                    // 操作 1: 私聊按钮
+                    Rectangle msgBtn = new(winX + 315, rowY - 2, 44, 20);
+                    bool msgHover = Raylib.CheckCollisionPointRec(mousePos, msgBtn);
+                    Raylib.DrawRectangleRec(msgBtn, msgHover ? new Color(60, 80, 120, 255) : new Color(30, 45, 65, 220));
+                    Raylib.DrawRectangleLines(winX + 315, rowY - 2, 44, 20, msgHover ? Color.SkyBlue : Color.DarkBlue);
+                    FontManager.DrawTextWithShadow("私聊", winX + 326, rowY + 2, 10, Color.White, Color.Black);
+
+                    if (msgHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        _isChatInputActive = true;
+                        _chatInputBuffer = $"@{f.Name} ";
+                    }
+
+                    // 操作 2: 删除按钮
+                    Rectangle delBtn = new(winX + 368, rowY - 2, 44, 20);
+                    bool delHover = Raylib.CheckCollisionPointRec(mousePos, delBtn);
+                    Raylib.DrawRectangleRec(delBtn, delHover ? new Color(130, 35, 35, 255) : new Color(65, 20, 20, 220));
+                    Raylib.DrawRectangleLines(winX + 368, rowY - 2, 44, 20, delHover ? Color.Red : Color.Maroon);
+                    FontManager.DrawTextWithShadow("删除", winX + 379, rowY + 2, 10, Color.White, Color.Black);
+
+                    if (delHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        social.RemoveFriend(f.Name);
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        break;
+                    }
+
+                    rowY += 26;
+                }
+            }
+
+            // 底部操作区：一键结交模拟道友
+            int footBtnY = listY + listH + 10;
+            Rectangle mockAddBtn = new(winX + 14, footBtnY, 130, 24);
+            bool mockAddHover = Raylib.CheckCollisionPointRec(mousePos, mockAddBtn);
+            Raylib.DrawRectangleRec(mockAddBtn, mockAddHover ? new Color(80, 65, 30, 255) : new Color(40, 32, 18, 220));
+            Raylib.DrawRectangleLines(winX + 14, footBtnY, 130, 24, mockAddHover ? Color.Gold : Color.DarkGray);
+            FontManager.DrawTextWithShadow("结交模拟道友 (+)", winX + 26, footBtnY + 5, 10, mockAddHover ? Color.Yellow : Color.LightGray, Color.Black);
+
+            if (mockAddHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                string[] mockNames = { "风清扬", "笑苍穹", "独孤一剑", "傲天狂魔", "月神传说" };
+                string randomName = mockNames[Random.Shared.Next(mockNames.Length)] + Random.Shared.Next(10, 99);
+                social.AddFriend(randomName, (CharacterJob)Random.Shared.Next(3), Random.Shared.Next(30, 48), "盟重省", true);
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            }
+
+            string hint = "指令: @friend add <名> [级] [职业] | @friend del <名>";
+            FontManager.DrawTextWithShadow(hint, winX + 155, footBtnY + 6, 10, Color.DarkGray, Color.Black);
+        }
+        else
+        {
+            // ===== 【页签 1: 师门武馆】 =====
+            int sectY = tabY + 34;
+
+            // 1. 师门师承板块
+            Raylib.DrawRectangle(winX + 10, sectY, winW - 20, 80, new Color(14, 12, 12, 240));
+            Raylib.DrawRectangleLines(winX + 10, sectY, winW - 20, 80, new Color(70, 55, 35, 200));
+            FontManager.DrawTextWithShadow("【 尊师重道 · 师承门第 】", winX + 18, sectY + 6, 11, Color.Gold, Color.Black);
+
+            if (!string.IsNullOrEmpty(social.MasterName))
+            {
+                string masterDesc = $"师父名号: 【{social.MasterName}】  |  出师状态: {(social.IsGraduated ? "已正式出师 (一代豪侠)" : "历练修行中")}";
+                FontManager.DrawTextWithShadow(masterDesc, winX + 22, sectY + 28, 11, Color.Yellow, Color.Black);
+
+                string repDesc = $"当前江湖声望: {social.Reputation} 点  |  自身等级: {_progression.Level} 级";
+                FontManager.DrawTextWithShadow(repDesc, winX + 22, sectY + 48, 10, Color.LightGray, Color.Black);
+
+                // 脱离师门按钮
+                Rectangle leaveBtn = new(winX + winW - 95, sectY + 44, 76, 22);
+                bool leaveHover = Raylib.CheckCollisionPointRec(mousePos, leaveBtn);
+                Raylib.DrawRectangleRec(leaveBtn, leaveHover ? new Color(140, 35, 35, 255) : new Color(70, 20, 20, 220));
+                Raylib.DrawRectangleLines(winX + winW - 95, sectY + 44, 76, 22, leaveHover ? Color.Red : Color.Maroon);
+                FontManager.DrawTextWithShadow("脱离师门", winX + winW - 83, sectY + 48, 10, Color.White, Color.Black);
+                if (leaveHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                {
+                    social.LeaveMaster();
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                }
+            }
+            else
+            {
+                string noMaster = _progression.Level <= 28 
+                    ? "当前尚未拜师！等级 <= 28 级可拜入名师门下 (指令: @master <师父名>)" 
+                    : "当前无师门。等级已超过 28 级不可拜师；达到 35 级可开山收徒！";
+                FontManager.DrawTextWithShadow(noMaster, winX + 22, sectY + 30, 11, Color.LightGray, Color.Black);
+
+                string repDesc = $"当前江湖声望: {social.Reputation} 点 (声望用于勋章重铸)";
+                FontManager.DrawTextWithShadow(repDesc, winX + 22, sectY + 52, 10, Color.Gold, Color.Black);
+            }
+
+            // 2. 门下弟子板块
+            int appY = sectY + 92;
+            int appH = 175;
+            Raylib.DrawRectangle(winX + 10, appY, winW - 20, appH, new Color(14, 12, 12, 240));
+            Raylib.DrawRectangleLines(winX + 10, appY, winW - 20, appH, new Color(70, 55, 35, 200));
+
+            Raylib.DrawRectangle(winX + 11, appY + 1, winW - 22, 22, new Color(35, 28, 20, 255));
+            FontManager.DrawTextWithShadow($"【 开山立派 · 门下弟子 ({social.Apprentices.Count}/{SocialManager.MaxApprenticesCount}) 】", winX + 18, appY + 5, 11, Color.Gold, Color.Black);
+
+            var apprentices = social.Apprentices;
+            if (apprentices.Count == 0)
+            {
+                string emptyApp = _progression.Level >= 35 || social.IsGraduated
+                    ? "门下尚未招录弟子。使用指令 @apprentice <名> [级] [职业] 或下方按钮收徒！"
+                    : "等级达到 35 级或出师后方可开山收徒，传承武道。";
+                FontManager.DrawTextWithShadow(emptyApp, winX + 28, appY + 70, 11, Color.Gray, Color.Black);
+            }
+            else
+            {
+                int rY = appY + 28;
+                for (int i = 0; i < apprentices.Count; i++)
+                {
+                    var a = apprentices[i];
+                    string stateStr = a.IsGraduated ? "【已出师】" : "【修行中】";
+                    Color stateCol = a.IsGraduated ? Color.Gold : Color.Lime;
+
+                    string appRow = $"{i + 1}. {a.Name,-6}  {a.JobName}  Lv.{a.Level}  {stateStr}";
+                    FontManager.DrawTextWithShadow(appRow, winX + 22, rY, 11, stateCol, Color.Black);
+
+                    // 若徒弟 >= 35 级且未出师，显示举行出师礼按钮
+                    if (!a.IsGraduated && a.Level >= 35)
+                    {
+                        Rectangle gradBtn = new(winX + 250, rY - 2, 70, 20);
+                        bool gradHover = Raylib.CheckCollisionPointRec(mousePos, gradBtn);
+                        Raylib.DrawRectangleRec(gradBtn, gradHover ? new Color(160, 110, 30, 255) : new Color(90, 65, 20, 220));
+                        Raylib.DrawRectangleLines(winX + 250, rY - 2, 70, 20, gradHover ? Color.Gold : Color.Orange);
+                        FontManager.DrawTextWithShadow("举行出师礼", winX + 256, rY + 2, 10, Color.Yellow, Color.Black);
+                        if (gradHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                        {
+                            var res = social.GraduateApprentice(a.Name);
+                            _chatLogs.Add(res.Message);
+                            _skillFx.SpawnLevelUp(_playerTilePos);
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                            break;
+                        }
+                    }
+
+                    // 逐出师门按钮
+                    Rectangle expelBtn = new(winX + 335, rY - 2, 70, 20);
+                    bool expelHover = Raylib.CheckCollisionPointRec(mousePos, expelBtn);
+                    Raylib.DrawRectangleRec(expelBtn, expelHover ? new Color(130, 35, 35, 255) : new Color(65, 20, 20, 220));
+                    Raylib.DrawRectangleLines(winX + 335, rY - 2, 70, 20, expelHover ? Color.Red : Color.Maroon);
+                    FontManager.DrawTextWithShadow("逐出师门", winX + 348, rY + 2, 10, Color.White, Color.Black);
+                    if (expelHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    {
+                        social.ExpelApprentice(a.Name);
+                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        break;
+                    }
+
+                    rY += 28;
+                }
+            }
+
+            // 底部操作与模拟收徒按钮
+            int btmY = appY + appH + 8;
+            Rectangle mockAppBtn = new(winX + 14, btmY, 130, 24);
+            bool mockAppHover = Raylib.CheckCollisionPointRec(mousePos, mockAppBtn);
+            Raylib.DrawRectangleRec(mockAppBtn, mockAppHover ? new Color(80, 65, 30, 255) : new Color(40, 32, 18, 220));
+            Raylib.DrawRectangleLines(winX + 14, btmY, 130, 24, mockAppHover ? Color.Gold : Color.DarkGray);
+            FontManager.DrawTextWithShadow("招录模拟门徒 (+)", winX + 26, btmY + 5, 10, mockAppHover ? Color.Yellow : Color.LightGray, Color.Black);
+
+            if (mockAppHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                string[] mockAppNames = { "初出茅庐", "热血少年", "潜龙在渊", "玛法新星" };
+                string randomAppName = mockAppNames[Random.Shared.Next(mockAppNames.Length)] + Random.Shared.Next(10, 99);
+                var aRes = social.AcceptApprentice(randomAppName, (CharacterJob)Random.Shared.Next(3), Random.Shared.Next(15, 25), _progression.Level);
+                _chatLogs.Add($"[师徒] {aRes.Message}");
+                if (aRes.Success) SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            }
+
+            string btmHint = "比奇城武馆教头处可举行出师礼；弟子升级将回馈师父声望。";
+            FontManager.DrawTextWithShadow(btmHint, winX + 155, btmY + 6, 9, Color.DarkGray, Color.Black);
+        }
+
+        // 面板底部快捷提示
+        string closeTip = "快捷操作: 按 [F] 键可随时开启/关闭此社交名录面板。";
+        FontManager.DrawTextWithShadow(closeTip, winX + 14, winY + winH - 18, 10, Color.DarkGray, Color.Black);
     }
 }
 

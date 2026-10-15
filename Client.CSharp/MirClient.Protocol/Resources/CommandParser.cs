@@ -27,6 +27,11 @@ public enum ParsedCommandType
     Repair,     // @repair 装备修理与特修
     Upgrade,    // @upgrade 铁匠铺武器升级锻造
     Durability, // @dura 修改武器持久度测试
+    Master,     // @master 拜师
+    Apprentice, // @apprentice 收徒与门徒管理
+    Graduate,   // @graduate 武馆出师典礼
+    Friend,     // @friend 好友管理与上下线
+    Reputation, // @reputation 江湖声望查询与调整
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -950,6 +955,145 @@ public static class CommandParser
                 };
             }
 
+            case "master":
+            case "拜师":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @master <师父名> (例如: @master 剑圣孤鸿)"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Master,
+                    TargetName = parts[1].Trim(),
+                    RawInput = input,
+                    Message = $"申请拜入【{parts[1].Trim()}】门下"
+                };
+            }
+
+            case "apprentice":
+            case "收徒":
+            case "收弟子":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Unknown,
+                        RawInput = input,
+                        Message = "格式错误！用法: @apprentice <徒弟名> [等级] [职业] (例如: @apprentice 小师弟 20 战士)"
+                    };
+                }
+
+                string apprenticeName = parts[1].Trim();
+                int lvl = 18;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int parsedLvl))
+                {
+                    lvl = Math.Clamp(parsedLvl, 1, 35);
+                }
+
+                CharacterJob job = CharacterJob.Warrior;
+                if (parts.Length >= 4)
+                {
+                    string j = parts[3].Trim();
+                    if (j.Contains("法")) job = CharacterJob.Wizard;
+                    else if (j.Contains("道")) job = CharacterJob.Taoist;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Apprentice,
+                    TargetName = apprenticeName,
+                    Amount = lvl,
+                    TargetJob = job,
+                    RawInput = input,
+                    Message = $"收录徒弟【{apprenticeName}】(等级: {lvl}, 职业: {job})"
+                };
+            }
+
+            case "graduate":
+            case "出师":
+            {
+                string target = parts.Length >= 2 ? parts[1].Trim() : "";
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Graduate,
+                    TargetName = target,
+                    RawInput = input,
+                    Message = string.IsNullOrEmpty(target) ? "自身举行武馆出师典礼" : $"为徒弟【{target}】举行出师礼"
+                };
+            }
+
+            case "friend":
+            case "好友":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Friend,
+                        SubAction = "list",
+                        RawInput = input,
+                        Message = "查看好友列表"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                string friendName = parts.Length >= 3 ? parts[2].Trim() : "";
+                int fLevel = 35;
+                if (parts.Length >= 4 && int.TryParse(parts[3], out int parsedFl))
+                {
+                    fLevel = Math.Clamp(parsedFl, 1, 70);
+                }
+
+                CharacterJob fJob = CharacterJob.Warrior;
+                if (parts.Length >= 5)
+                {
+                    string j = parts[4].Trim();
+                    if (j.Contains("法")) fJob = CharacterJob.Wizard;
+                    else if (j.Contains("道")) fJob = CharacterJob.Taoist;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Friend,
+                    SubAction = sub,
+                    TargetName = friendName,
+                    Amount = fLevel,
+                    TargetJob = fJob,
+                    RawInput = input,
+                    Message = $"好友操作: {sub} 【{friendName}】"
+                };
+            }
+
+            case "rep":
+            case "reputation":
+            case "声望":
+            {
+                int repToAdd = 0;
+                string sub = "query";
+                if (parts.Length >= 3 && parts[1].ToLowerInvariant() == "add" && int.TryParse(parts[2], out int r))
+                {
+                    sub = "add";
+                    repToAdd = r;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Reputation,
+                    SubAction = sub,
+                    Amount = repToAdd,
+                    RawInput = input,
+                    Message = sub == "add" ? $"增加江湖声望: {repToAdd}" : "查询当前江湖声望"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -971,6 +1115,11 @@ public static class CommandParser
                               "  @guild create <行会名>- 创立行会 (如 @guild create 傲视天下)\n" +
                               "  @guild rank <职务>    - 变更职务 (如 @guild rank 堂主)\n" +
                               "  @guild add <名> [级] [职] [阶] - 招募帮众 (如 @guild add 霸天虎 40 战士 堂主)\n" +
+                              "  @master <师父名>      - 拜入名师门下 (需<=28级)\n" +
+                              "  @apprentice <徒弟名> [级] [职] - 收录门徒 (需>=35级或出师)\n" +
+                              "  @graduate [徒弟名]    - 举行武馆出师典礼 (徒弟>=35级)\n" +
+                              "  @friend <add/del/list> <名> - 好友管理 (快捷键 F 打开社交面板)\n" +
+                              "  @reputation [add <值>]- 查询或增加江湖声望\n" +
                               "  @stall on <招牌名>    - 在主城安全区支起摊位摆摊\n" +
                               "  @stall off            - 收摊并取回未售商品\n" +
                               "  @stall add <物品> <价>- 将背包物品上架至摊位货架\n" +
