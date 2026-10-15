@@ -36,6 +36,8 @@ public enum ParsedCommandType
     Hero,       // @hero 英雄伙伴召唤/收回/模式切换
     Joint,      // @joint 释放主副心神合一合击绝技
     Fury,       // @fury 真气怒气槽调试
+    Boss,       // @boss 世界教主刷新/击杀/战况
+    Drop,       // @drop 极品神装与大爆测试
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1195,6 +1197,50 @@ public static class CommandParser
                 };
             }
 
+            case "boss":
+            case "教主":
+            case "世界boss":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "status";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Boss,
+                    SubAction = sub,
+                    TargetName = extra,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "spawn" or "刷新" or "召唤" => $"召唤世界教主【{(!string.IsNullOrEmpty(extra) ? extra : "祖玛教主")}】",
+                        "kill" or "击杀" or "处决" => "处决当前世界教主并触发天女散花大爆",
+                        "status" or "战况" or "状态" => "查看当前世界教主状态与伤害输出榜",
+                        _ => "世界教主操作"
+                    }
+                };
+            }
+
+            case "drop":
+            case "大爆":
+            case "极品":
+            {
+                string itemName = parts.Length >= 2 ? parts[1].Trim() : "裁决之杖";
+                int bonus = 3;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int b))
+                {
+                    bonus = Math.Clamp(b, 1, 10);
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Drop,
+                    TargetName = itemName,
+                    Amount = bonus,
+                    RawInput = input,
+                    Message = $"生成极品战利品【{itemName} (极品+{bonus})】"
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1205,6 +1251,8 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
+                              "  @boss spawn/kill/status - 世界教主召唤/处决大爆/伤害战况\n" +
+                              "  @drop <物品名> [极品点数] - 调试生成极品神装大爆\n" +
                               "  @make <物品名> [数量] - 刷取神装或药水 (如 @make 裁决之杖, @make 强效太阳水)\n" +
                               "  @gold <数值>          - 充值随身金币 (如 @gold 100000)\n" +
                               "  @mob <怪物名>         - 眼前刷怪 (如 @mob 白野猪)\n" +

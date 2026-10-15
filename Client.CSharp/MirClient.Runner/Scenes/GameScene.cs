@@ -593,6 +593,55 @@ public class GameScene : IScene
             {
                 _chatLogs.Add($"[提示] {pickupMsg}");
             }
+
+            // 拾取世界 Boss 专属大爆极品战利品 (含 60 秒归属保护检验)
+            if (WorldBossManager.Instance.TryPickupBossLoot(_playerTilePos, _playerName, _inv, ref _gold, out string bossLootMsg))
+            {
+                _chatLogs.Add(bossLootMsg);
+                if (bossLootMsg.Contains("金币"))
+                {
+                    SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                }
+                else
+                {
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+            }
+            else if (isSpacePressed && !string.IsNullOrEmpty(bossLootMsg))
+            {
+                _chatLogs.Add(bossLootMsg);
+            }
+        }
+
+        // 推进世界教主战斗、狂暴大招与归属保护倒计时
+        if (WorldBossManager.Instance.IsAlive)
+        {
+            if (WorldBossManager.Instance.Update(dt, _playerTilePos, out string? bossReport))
+            {
+                if (!string.IsNullOrEmpty(bossReport))
+                {
+                    _chatLogs.Add(bossReport);
+                    var skill = WorldBossManager.Instance.GetSkillDefinition();
+                    if (skill.Name.Contains("雷"))
+                    {
+                        _skillFx.SpawnThunder(_playerTilePos);
+                    }
+                    else
+                    {
+                        _skillFx.SpawnFireSword(_playerTilePos, 0);
+                    }
+                    _hp = Math.Max(0, _hp - skill.Damage);
+                    TriggerStruck();
+                    if (_hp <= 0)
+                    {
+                        TriggerPlayerDeath($"遭到世界Boss【{WorldBossManager.Instance.BossName}】绝技轰杀");
+                    }
+                }
+            }
+        }
+        else
+        {
+            WorldBossManager.Instance.Update(dt, _playerTilePos, out _);
         }
 
         // 推进全屏法术光效与技能冷却倒计时
@@ -1018,6 +1067,87 @@ public class GameScene : IScene
             FontManager.DrawTextWithShadow(label, (int)(itemPixel.X - textW / 2f), (int)itemPixel.Y - 15, 11, itemColor, Color.Black);
         }
 
+        // 【Pass 4.2: 世界 Boss 专属大爆战利品与冲天光柱】
+        BossLootDrop? hoveredBossLoot = null;
+        float nowSec = (float)Raylib.GetTime();
+        foreach (var bl in WorldBossManager.Instance.ActiveLoots)
+        {
+            Vector2 rel = bl.TilePos - _playerTilePos;
+            Vector2 lootPixel = screenCenter + rel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            if (lootPixel.X < -80 || lootPixel.X > viewportW + 80 || lootPixel.Y < -150 || lootPixel.Y > viewportH + 80)
+                continue;
+
+            // 1. 极品与神圣冲天光柱 (Pillar of Light)
+            if (bl.Rarity >= ItemRarity.Rare)
+            {
+                Color beamColor = bl.Rarity == ItemRarity.Epic 
+                    ? new Color((byte)200, (byte)100, (byte)255, (byte)140) 
+                    : new Color((byte)255, (byte)215, (byte)0, (byte)140);
+                
+                int beamH = bl.Rarity == ItemRarity.Epic ? 140 : 90;
+                float beamPulse = 0.8f + 0.2f * MathF.Sin(nowSec * 5f + bl.Id);
+                int beamW = (int)(14 * beamPulse);
+
+                Raylib.BeginBlendMode(BlendMode.Additive);
+                Raylib.DrawRectangle((int)(lootPixel.X - beamW / 2), (int)(lootPixel.Y - beamH), beamW, beamH, beamColor);
+                Raylib.DrawCircle((int)lootPixel.X, (int)lootPixel.Y, (int)(16 * beamPulse), beamColor);
+                Raylib.EndBlendMode();
+            }
+
+            // 2. 战利品脚底光圈
+            Color ringColor = bl.Rarity switch
+            {
+                ItemRarity.Epic => Color.Purple,
+                ItemRarity.Rare => Color.Gold,
+                ItemRarity.Fine => Color.Lime,
+                _ => bl.IsGold ? Color.Yellow : Color.White
+            };
+            Raylib.DrawCircleLines((int)lootPixel.X, (int)lootPixel.Y, 11, ringColor);
+
+            // 3. 战利品品名与归属保护倒计时
+            string protectInfo = bl.IsProtected ? $" [{bl.OwnerName} {(int)bl.ProtectSeconds}s]" : "";
+            string bLabel = $"{bl.DisplayName}{protectInfo}";
+            int bTextW = Raylib.MeasureText(bLabel, 11);
+            Rectangle bRect = new(lootPixel.X - bTextW / 2f - 4, lootPixel.Y - 18, bTextW + 8, 15);
+            Raylib.DrawRectangleRec(bRect, new Color(12, 10, 8, 200));
+
+            bool isBHovered = isMouseInViewport && Raylib.CheckCollisionPointRec(mousePos, bRect);
+            if (isBHovered)
+            {
+                hoveredBossLoot = bl;
+                Raylib.DrawRectangleLinesEx(bRect, 1, Color.White);
+            }
+            else
+            {
+                Raylib.DrawRectangleLinesEx(bRect, 1, new Color(ringColor.R, ringColor.G, ringColor.B, (byte)150));
+            }
+
+            FontManager.DrawTextWithShadow(bLabel, (int)(lootPixel.X - bTextW / 2f), (int)lootPixel.Y - 17, 11, ringColor, Color.Black);
+        }
+
+        // 鼠标左键点击世界 Boss 掉落物直接拾取或前往
+        if (hoveredBossLoot != null && Raylib.IsMouseButtonPressed(MouseButton.Left) && !_showBag && !_showEquip && _activeNpc == null)
+        {
+            float dist = Vector2.Distance(_playerTilePos, hoveredBossLoot.TilePos);
+            if (dist <= 1.25f)
+            {
+                if (WorldBossManager.Instance.TryPickupBossLoot(_playerTilePos, _playerName, _inv, ref _gold, out string bPickupMsg))
+                {
+                    _chatLogs.Add(bPickupMsg);
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    _chatLogs.Add(bPickupMsg);
+                }
+            }
+            else
+            {
+                _targetTilePos = hoveredBossLoot.TilePos;
+                _chatLogs.Add($"[寻路] 正在前往夺取【{hoveredBossLoot.DisplayName}】...");
+            }
+        }
+
         // 鼠标左键点击地表掉落物直接拾取或寻路前往
         if (hoveredItem != null && Raylib.IsMouseButtonPressed(MouseButton.Left) && !_showBag && !_showEquip && _activeNpc == null)
         {
@@ -1089,6 +1219,15 @@ public class GameScene : IScene
             renderItems.Add((hero.HeroTilePos.Y, () => DrawHero(heroPixel)));
         }
 
+        // 添加世界教主 Boss 实体
+        if (WorldBossManager.Instance.IsAlive)
+        {
+            var boss = WorldBossManager.Instance;
+            Vector2 bossRel = boss.TilePos - _playerTilePos;
+            Vector2 bossPixel = screenCenter + bossRel * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+            renderItems.Add((boss.TilePos.Y, () => DrawWorldBoss(boss, bossPixel)));
+        }
+
         // 严格按照脚底 Y 升序排列并依次绘制
         renderItems.Sort((a, b) => a.Y.CompareTo(b.Y));
         foreach (var item in renderItems)
@@ -1098,6 +1237,12 @@ public class GameScene : IScene
 
         // 【Pass 5: 全屏技能法术发光光效层 (Additive Blending)】
         _skillFx.DrawAll(screenCenter, _playerTilePos, TILE_WIDTH, TILE_HEIGHT);
+
+        // 【Pass 6: 屏幕顶部世界教主专属巨型霸气血条】
+        if (WorldBossManager.Instance.IsAlive)
+        {
+            RenderBossHealthBar(viewportW);
+        }
     }
 
     private void TriggerAttack()
@@ -2586,6 +2731,73 @@ public class GameScene : IScene
                 {
                     SoundManager.Instance.Play(SoundEffectType.LevelUp);
                 }
+                break;
+            }
+
+            case ParsedCommandType.Boss:
+            {
+                if (cmd.SubAction == "spawn")
+                {
+                    WorldBossType bType = WorldBossType.ZumaKing;
+                    if (cmd.TargetName.Contains("沃玛")) bType = WorldBossType.WomaKing;
+                    else if (cmd.TargetName.Contains("牛魔")) bType = WorldBossType.BullDemonKing;
+                    else if (cmd.TargetName.Contains("赤月")) bType = WorldBossType.MoonDevil;
+
+                    Vector2 spawnTile = _playerTilePos + new Vector2(3, 0);
+                    string spawnMsg = WorldBossManager.Instance.SpawnBoss(bType, spawnTile);
+                    _chatLogs.Add($"[世界Boss] {spawnMsg}");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "kill")
+                {
+                    if (WorldBossManager.Instance.IsAlive)
+                    {
+                        var drops = WorldBossManager.Instance.TriggerBigExplosion(WorldBossManager.Instance.TilePos, _playerName, IsCellBlocked);
+                        _chatLogs.Add($"[世界Boss] 已处决【{WorldBossManager.Instance.BossName}】！触发天女散花大爆，散落 {drops.Count} 堆神品宝物！");
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                    else
+                    {
+                        _chatLogs.Add("[世界Boss] 当前战场上未检测到存活的世界教主。");
+                    }
+                }
+                else
+                {
+                    var boss = WorldBossManager.Instance;
+                    if (boss.IsAlive)
+                    {
+                        string state = boss.IsEnraged ? "【嗜血狂暴】" : "【常态作战】";
+                        _chatLogs.Add($"[世界Boss] 当前教主: 【{boss.BossName}】(Lv.{boss.Level}) | 生命: {boss.CurrentHp}/{boss.MaxHp} {state} | 坐标: ({boss.TilePos.X:F0}, {boss.TilePos.Y:F0}) | 最高伤害归属: 【{boss.HighestDamageDealer}】");
+                    }
+                    else
+                    {
+                        _chatLogs.Add("[世界Boss] 当前无世界教主活动。输入 @boss spawn <祖玛教主/赤月恶魔/沃玛教主/牛魔王> 召唤！");
+                    }
+                }
+                break;
+            }
+
+            case ParsedCommandType.Drop:
+            {
+                string iName = !string.IsNullOrEmpty(cmd.TargetName) ? cmd.TargetName : "裁决之杖";
+                var dropItem = Item.CreateJudgmentMace();
+                if (iName.Contains("战神") || iName.Contains("甲") || iName.Contains("衣"))
+                {
+                    dropItem = Item.CreateGodArmor();
+                }
+                else if (iName.Contains("乌木"))
+                {
+                    dropItem = Item.CreateEbonySword();
+                }
+                
+                int bonusPts = cmd.Amount > 0 ? cmd.Amount : 3;
+                var rolled = WorldBossManager.RollRareAffix(dropItem, bonusPts);
+                var customDrop = WorldBossManager.Instance.SpawnCustomLoot(_playerTilePos, rolled.Item, _playerName, rolled.Rarity);
+
+                _chatLogs.Add($"[极品掉落] 脚下天降神兵【{customDrop.DisplayName}】({rolled.Rarity})！");
+                _skillFx.SpawnLevelUp(_playerTilePos);
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
                 break;
             }
 
@@ -5039,6 +5251,83 @@ public class GameScene : IScene
                 }
             }
         }
+    }
+
+    private void DrawWorldBoss(WorldBossManager boss, Vector2 center)
+    {
+        // 1. 巨大魔王足底暗黑光环
+        float time = (float)Raylib.GetTime();
+        float ringPulse = 1.0f + 0.15f * MathF.Sin(time * 5f);
+        Color auraColor = boss.IsEnraged 
+            ? new Color((byte)255, (byte)40, (byte)40, (byte)150) 
+            : new Color((byte)180, (byte)30, (byte)220, (byte)130);
+
+        Raylib.DrawEllipse((int)center.X, (int)center.Y, (int)(36 * ringPulse), (int)(18 * ringPulse), auraColor);
+        Raylib.DrawEllipse((int)center.X, (int)center.Y, 26, 13, new Color((byte)0, (byte)0, (byte)0, (byte)160));
+
+        // 2. Boss 实体造型绘制 (以染色与放大呈现教主之威)
+        Color bossTint = boss.IsEnraged ? new Color((byte)255, (byte)90, (byte)90, (byte)255) : Color.White;
+        int frame = HumanAction.CalculateBaseFrame(HumanActionType.Stand, 4, (int)(time * 4) % 4);
+        var (humTex, hx, hy) = AssetManager.GetFrameWithOffset(AssetManager.HumLib, "Hum", frame);
+        if (humTex.HasValue)
+        {
+            Rectangle src = new(0, 0, humTex.Value.Width, humTex.Value.Height);
+            Rectangle dest = new(center.X + hx * 1.5f, center.Y + hy * 1.5f, humTex.Value.Width * 1.5f, humTex.Value.Height * 1.5f);
+            Raylib.DrawTexturePro(humTex.Value, src, dest, Vector2.Zero, 0f, bossTint);
+        }
+        else
+        {
+            Raylib.DrawCircle((int)center.X, (int)center.Y - 35, 28, bossTint);
+        }
+
+        // 3. Boss 头顶尊号与血条
+        int barW = 60;
+        int barH = 5;
+        int barX = (int)(center.X - barW / 2f);
+        int barY = (int)(center.Y - 80);
+        Raylib.DrawRectangle(barX, barY, barW, barH, Color.Black);
+        float hpRate = Math.Clamp((float)boss.CurrentHp / boss.MaxHp, 0f, 1f);
+        Raylib.DrawRectangle(barX, barY, (int)(barW * hpRate), barH, boss.IsEnraged ? Color.Red : Color.Gold);
+        Raylib.DrawRectangleLines(barX, barY, barW, barH, Color.DarkGray);
+
+        string title = $"★★★【{boss.BossName}】Lv.{boss.Level} ★★★";
+        int tW = FontManager.MeasureText(title, 12);
+        FontManager.DrawTextWithShadow(title, (int)(center.X - tW / 2f), barY - 16, 12, boss.IsEnraged ? Color.Red : Color.Gold, Color.Black);
+    }
+
+    private void RenderBossHealthBar(int screenW)
+    {
+        var boss = WorldBossManager.Instance;
+        int barW = 380;
+        int barH = 22;
+        int barX = (screenW - barW) / 2;
+        int barY = 32;
+
+        // 1. 黑曜石雕花底板
+        Raylib.DrawRectangle(barX - 4, barY - 4, barW + 8, barH + 8, new Color((byte)15, (byte)12, (byte)10, (byte)240));
+        Raylib.DrawRectangleLines(barX - 4, barY - 4, barW + 8, barH + 8, boss.IsEnraged ? Color.Red : Color.Gold);
+
+        // 2. 生命血条填充
+        float hpRate = Math.Clamp((float)boss.CurrentHp / boss.MaxHp, 0f, 1f);
+        int fillW = (int)(barW * hpRate);
+        if (fillW > 0)
+        {
+            Color hpCol = boss.IsEnraged ? new Color((byte)230, (byte)30, (byte)30, (byte)255) : new Color((byte)200, (byte)160, (byte)20, (byte)255);
+            Raylib.DrawRectangle(barX, barY, fillW, barH, hpCol);
+        }
+
+        // 3. 狂暴呼吸外边框
+        if (boss.IsEnraged)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            Raylib.DrawRectangleLinesEx(new Rectangle(barX - 2, barY - 2, barW + 4, barH + 4), 2, new Color((byte)255, (byte)50, (byte)50, (byte)(255 * pulse)));
+        }
+
+        // 4. 教主品名与数值文字
+        string rageStr = boss.IsEnraged ? " [狂暴中!]" : "";
+        string bossTitle = $"【{boss.BossName}】(Lv.{boss.Level}){rageStr}  {boss.CurrentHp:#,##0} / {boss.MaxHp:#,##0} ({hpRate:P0})";
+        int textW = FontManager.MeasureText(bossTitle, 11);
+        FontManager.DrawTextWithShadow(bossTitle, barX + (barW - textW) / 2, barY + 4, 11, Color.White, Color.Black);
     }
 }
 
