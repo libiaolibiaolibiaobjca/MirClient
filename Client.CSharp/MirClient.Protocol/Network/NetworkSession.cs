@@ -57,6 +57,7 @@ public class NetworkSession : IDisposable
     public event Action<int>? OnDelBagItem;
     public event Action<SpellBroadcastEvent>? OnSpellBroadcast;
     public event Action<MagicFireEvent>? OnMagicFire;
+    public event Action<ChatMessageEvent>? OnChatMessage;
 
     public NetworkSession()
     {
@@ -380,6 +381,66 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 玩家发言与普通视野广播
+                case ProtocolConsts.SM_HEAR:
+                case ProtocolConsts.SM_HEAR_LEGACY:
+                {
+                    var chatEvt = ChatProtocolManager.ParseHearMessage(e.Header, e.Payload);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 系统广播与公告提示
+                case ProtocolConsts.SM_SYSMESSAGE:
+                {
+                    var chatEvt = ChatProtocolManager.ParseSystemMessage(e.Header, e.Payload);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 组队频道广播
+                case ProtocolConsts.SM_GROUPMESSAGE:
+                {
+                    var chatEvt = ChatProtocolManager.ParseGroupMessage(e.Header, e.Payload);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 行会频道广播
+                case ProtocolConsts.SM_GUILDMESSAGE:
+                {
+                    var chatEvt = ChatProtocolManager.ParseGuildMessage(e.Header, e.Payload);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 私聊密语
+                case ProtocolConsts.SM_WHISPER:
+                {
+                    var chatEvt = ChatProtocolManager.ParseWhisperMessage(e.Header, e.Payload);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 喊话频道广播
+                case ProtocolConsts.SM_CRY:
+                {
+                    var chatEvt = new ChatMessageEvent(
+                        e.Header.Recog,
+                        string.Empty,
+                        EDCode.DecodeText(e.Payload ?? string.Empty),
+                        ChatChannel.Shout,
+                        e.Header.Param);
+                    OnChatMessage?.Invoke(chatEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -467,6 +528,15 @@ public class NetworkSession : IDisposable
     {
         var (msg, payload, _) = GroundItemProtocolManager.CreateDropItemPacket(itemMakeIndex, dropCount, itemName);
         await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送聊天发言数据包 (CM_SAY = 3030)
+    /// </summary>
+    public async Task SendSayAsync(string text, ChatChannel channel = ChatChannel.Normal, string target = "")
+    {
+        var (header, payload) = ChatProtocolManager.CreateSayPacket(text, channel, target);
+        await SendGamePacketAsync(header, payload);
     }
 
     /// <summary>

@@ -16,7 +16,8 @@ public static class ProtocolConsts
     public const ushort CM_RUN           = 1005; // 角色奔跑 (跨格)
     public const ushort CM_HIT           = 1006; // 角色物理攻击
     public const ushort CM_SPELL         = 3017; // 角色主动施放技能法术
-    public const ushort CM_SAY           = 1007; // 玩家发言广播
+    public const ushort CM_SAY           = 1007; // 玩家发言广播 (经典网关兼容)
+    public const ushort CM_SAY_OPENMIR2  = 3030; // 玩家发言广播 (OpenMir2 标准命令)
     public const ushort CM_DROPITEM      = 1000; // 丢弃物品
     public const ushort CM_PICKUP        = 1001; // 拾取地面物品
     public const ushort CM_TAKEONITEM    = 1003; // 穿戴装备
@@ -80,6 +81,12 @@ public static class ProtocolConsts
     public const ushort SM_STARTPLAY            = 525;  // 选角成功，开始进入游戏网关
     public const ushort SM_QUERYCHR_FAIL        = 527;  // 查询角色失败
     public const ushort SM_PASSOK_SELECTSERVER  = 529;  // 密码验证通过，请求选择服务器
-    public const ushort SM_HEAR                 = 530;  // 收到聊天发言
+    public const ushort SM_HEAR                 = 40;   // 收到普通聊天发言广播 (Recog=ActorId)
+    public const ushort SM_HEAR_LEGACY          = 530;  // 兼容老网关发言命令
+    public const ushort SM_SYSMESSAGE           = 100;  // 系统广播/公告/提示信息
+    public const ushort SM_GROUPMESSAGE         = 101;  // 组队频道聊天消息
+    public const ushort SM_CRY                  = 102;  // 喊话频道广播
+    public const ushort SM_WHISPER              = 103;  // 私聊/密语消息
+    public const ushort SM_GUILDMESSAGE         = 104;  // 行会频道聊天消息
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }

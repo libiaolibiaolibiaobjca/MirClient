@@ -1,6 +1,7 @@
 using System.Numerics;
 using Raylib_cs;
 using MirClient.Protocol;
+using MirClient.Protocol.Network;
 using MirClient.Protocol.Resources;
 using MirClient.Runner.Graphics;
 
@@ -202,6 +203,10 @@ public class GameScene : IScene
                     victim.TakeDamage(fireEvt.Damage);
                 }
             }
+        };
+        _engine.NetworkSession.OnChatMessage += chatEvt =>
+        {
+            _chatLogs.Add(chatEvt.FormattedText);
         };
     }
 
@@ -2332,7 +2337,15 @@ public class GameScene : IScene
             case ParsedCommandType.Chat:
                 if (!string.IsNullOrWhiteSpace(cmd.Message))
                 {
-                    _chatLogs.Add($"[{_playerName}] {cmd.Message}");
+                    if (_engine.NetworkSession.Step == NetworkStep.InWorld)
+                    {
+                        var (channel, cleanText, target) = ChatProtocolManager.ResolveChannelFromInput(cmd.Message);
+                        _ = _engine.NetworkSession.SendSayAsync(cmd.Message, channel, target);
+                    }
+                    else
+                    {
+                        _chatLogs.Add($"[{_playerName}] {cmd.Message}");
+                    }
                 }
                 break;
 
