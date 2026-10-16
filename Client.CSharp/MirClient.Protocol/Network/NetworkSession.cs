@@ -55,6 +55,8 @@ public class NetworkSession : IDisposable
     public event Action<EquipActionResult>? OnTakeOffResult;
     public event Action<EatActionResult>? OnEatResult;
     public event Action<int>? OnDelBagItem;
+    public event Action<SpellBroadcastEvent>? OnSpellBroadcast;
+    public event Action<MagicFireEvent>? OnMagicFire;
 
     public NetworkSession()
     {
@@ -360,6 +362,24 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 实体施放技能法术广播
+                case ProtocolConsts.SM_SPELL:
+                {
+                    var spellEvt = MagicProtocolManager.ParseSpellBroadcast(e.Header, e.Payload);
+                    OnSpellBroadcast?.Invoke(spellEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 法术命中与伤害结算广播
+                case ProtocolConsts.SM_MAGICFIRE:
+                {
+                    var fireEvt = MagicProtocolManager.ParseMagicFire(e.Header);
+                    OnMagicFire?.Invoke(fireEvt);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -401,6 +421,15 @@ public class NetworkSession : IDisposable
     public async Task SendTakeOffItemAsync(int itemMakeIndex, EquipSlotType slot, string itemName)
     {
         var (msg, payload, _) = InventoryProtocolManager.CreateTakeOffPacket(itemMakeIndex, slot, itemName);
+        await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送施放技能法术数据包 (CM_SPELL)
+    /// </summary>
+    public async Task SendSpellAsync(int magicId, int targetX, int targetY, int targetRecogId = 0)
+    {
+        var (msg, payload, _) = MagicProtocolManager.CreateSpellPacket(magicId, targetX, targetY, targetRecogId);
         await SendGamePacketAsync(msg, payload);
     }
 

@@ -15,6 +15,7 @@ public static class ProtocolConsts
     public const ushort CM_WALK          = 1004; // 角色走步 (单格)
     public const ushort CM_RUN           = 1005; // 角色奔跑 (跨格)
     public const ushort CM_HIT           = 1006; // 角色物理攻击
+    public const ushort CM_SPELL         = 3017; // 角色主动施放技能法术
     public const ushort CM_SAY           = 1007; // 玩家发言广播
     public const ushort CM_DROPITEM      = 1000; // 丢弃物品
     public const ushort CM_PICKUP        = 1001; // 拾取地面物品
@@ -32,6 +33,7 @@ public static class ProtocolConsts
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
 
     // 服务端发往客户端的响应与世界广播 (SM_)
+    public const ushort SM_SPELL                = 17;   // 实体施放技能法术广播 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=MagicId)
     public const ushort SM_LOGON                = 50;   // 登录进入世界 (下发玩家属性)
     public const ushort SM_TURN                 = 51;   // 实体转身
     public const ushort SM_WALK                 = 52;   // 实体走步
@@ -63,6 +65,10 @@ public static class ProtocolConsts
     public const ushort SM_WEIGHTCHANGED        = 622;  // 负重/背包重量改变
     public const ushort SM_EAT_OK               = 635;  // 物品使用成功
     public const ushort SM_EAT_FAIL             = 636;  // 物品使用失败
+    public const ushort SM_MAGICFIRE            = 638;  // 法术命中与伤害结算 (Recog=TargetId, Param=Damage, Tag=MagicId)
+    public const ushort SM_MAGICFIREFAIL        = 639;  // 法术释放失败
+    public const ushort SM_ADDMAGIC             = 210;  // 习得新技能下发
+    public const ushort SM_SENDMYMAGIC          = 211;  // 下发角色已掌握法术列表
     public const ushort SM_MERCHANTSAY          = 643;  // NPC 对话正文与脚本选项下发
     public const ushort SM_MERCHANTDLGCLOSE     = 644;  // 关闭 NPC 对话框
     public const ushort SM_SENDGOODSLIST        = 645;  // NPC 商品货架列表

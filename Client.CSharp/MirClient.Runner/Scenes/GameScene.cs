@@ -165,6 +165,44 @@ public class GameScene : IScene
         {
             _inv.RemoveItemById(makeIndex);
         };
+        _engine.NetworkSession.OnSpellBroadcast += spellEvt =>
+        {
+            Vector2 castPos = new(spellEvt.TargetX, spellEvt.TargetY);
+            switch (spellEvt.MagicId)
+            {
+                case (int)MagicType.Thunder:
+                    _skillFx.SpawnThunder(castPos);
+                    SoundManager.Instance.Play(SoundEffectType.Thunder);
+                    break;
+                case (int)MagicType.Fireball:
+                case (int)MagicType.Fireball2:
+                case (int)MagicType.SoulCharm:
+                case (int)MagicType.FireWall:
+                case (int)MagicType.HellFire:
+                    _skillFx.SpawnFireball(_playerTilePos, castPos);
+                    SoundManager.Instance.Play(SoundEffectType.Fireball);
+                    break;
+                case (int)MagicType.Healing:
+                    _skillFx.SpawnHealing(castPos);
+                    SoundManager.Instance.Play(SoundEffectType.Heal);
+                    break;
+                case (int)MagicType.FireSword:
+                    _skillFx.SpawnFireSword(castPos, _direction);
+                    SoundManager.Instance.Play(SoundEffectType.FireSword);
+                    break;
+            }
+        };
+        _engine.NetworkSession.OnMagicFire += fireEvt =>
+        {
+            lock (_entities)
+            {
+                var victim = _entities.FirstOrDefault(e => e.RecogId == fireEvt.TargetId);
+                if (victim != null)
+                {
+                    victim.TakeDamage(fireEvt.Damage);
+                }
+            }
+        };
     }
 
     public void Init()
@@ -1473,6 +1511,29 @@ public class GameScene : IScene
         _actionTimer = 0f;
 
         Vector2 frontTile = MapEntity.GetFrontTile(_playerTilePos, _direction);
+
+        // 4. 若处于联机状态，向 OpenMir2 7200 网关发送 CM_SPELL 施法封包
+        if (_engine.NetworkSession.IsConnected)
+        {
+            int magicId = type switch
+            {
+                SkillType.ThunderBolt => (int)MagicType.Thunder,
+                SkillType.FireSword => (int)MagicType.FireSword,
+                SkillType.Healing => (int)MagicType.Healing,
+                SkillType.Fireball => (int)MagicType.Fireball,
+                _ => (int)MagicType.Fireball
+            };
+
+            Vector2 targetTile = frontTile;
+            int targetId = 0;
+            MapEntity? nearest = FindNearestMonster(frontTile, 6f);
+            if (nearest != null)
+            {
+                targetTile = nearest.TilePos;
+                targetId = (int)nearest.RecogId;
+            }
+            _ = _engine.NetworkSession.SendSpellAsync(magicId, (int)targetTile.X, (int)targetTile.Y, targetId);
+        }
 
         switch (type)
         {
