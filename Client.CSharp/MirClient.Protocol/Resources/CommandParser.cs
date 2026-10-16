@@ -742,12 +742,34 @@ public static class CommandParser
                         Message = $"招募行会成员【{targetName}】(Lv.{level} {job} [{rank}])！"
                     };
                 }
+                else if (sub == "notice" || sub == "公告")
+                {
+                    string notice = parts.Length >= 3 ? string.Join(' ', parts.Skip(2)) : "";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "notice",
+                        TargetName = notice,
+                        Message = $"设置行会公告: {notice}"
+                    };
+                }
+                else if (sub == "open" || sub == "panel" || sub == "面板" || sub == "dlg")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Guild,
+                        RawInput = input,
+                        SubAction = "open",
+                        Message = "打开行会面板。"
+                    };
+                }
 
                 return new ParsedCommand
                 {
                     Type = ParsedCommandType.Unknown,
                     RawInput = input,
-                    Message = $"未知行会子指令【{parts[1]}】！可选: create, add, rank, kick, leave"
+                    Message = $"未知行会子指令【{parts[1]}】！可选: create, add, rank, kick, leave, notice, open"
                 };
             }
 

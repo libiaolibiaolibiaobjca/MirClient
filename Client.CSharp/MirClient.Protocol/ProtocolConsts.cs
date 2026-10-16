@@ -39,6 +39,13 @@ public static class ProtocolConsts
     public const ushort CM_DEALCANCEL    = 1028; // 取消交易
     public const ushort CM_DEALCHGGOLD   = 1029; // 调整交易金币数 (Param: 金币数)
     public const ushort CM_DEALEND       = 1030; // 锁定交易并确认成交
+    public const ushort CM_OPENGUILDDLG  = 1035; // 请求打开行会主面板
+    public const ushort CM_GUILDHOME     = 1036; // 查询行会主页信息
+    public const ushort CM_GUILDMEMBERLIST = 1037; // 请求行会成员名册与职务列表
+    public const ushort CM_GUILDADDMEMBER= 1038; // 招募新成员入会 (Payload: 目标人名)
+    public const ushort CM_GUILDDELMEMBER= 1039; // 逐出成员或退出行会 (Payload: 目标人名)
+    public const ushort CM_GUILDUPDATENOTICE = 1040; // 修改行会公告 (Payload: 公告内容)
+    public const ushort CM_GUILDUPDATERANKINFO = 1041; // 更新行会职务头衔设置
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -120,5 +127,13 @@ public static class ProtocolConsts
     public const ushort SM_DEALCHGGOLD_FAIL     = 685;  // 本地金币调整失败
     public const ushort SM_DEALREMOTECHGGOLD    = 686;  // 对方金币调整同步 (Recog: 对方金币数)
     public const ushort SM_DEALSUCCESS          = 687;  // 交易锁定并成交
+    public const ushort SM_OPENGUILDDLG         = 753;  // 打开行会面板成功 (Payload: 行会名与会长权限等)
+    public const ushort SM_OPENGUILDDLG_FAIL    = 754;  // 打开行会失败 (未加入任何行会)
+    public const ushort SM_SENDGUILDMEMBERLIST  = 756;  // 下发全行会职务层级与成员名册 (Payload: #RankNo/*RankName/Member1/.../)
+    public const ushort SM_GUILDADDMEMBER_OK    = 757;  // 招募成员入会成功
+    public const ushort SM_GUILDADDMEMBER_FAIL  = 758;  // 招募成员失败 (Recog: 错误代码)
+    public const ushort SM_GUILDDELMEMBER_OK    = 759;  // 移出或退出行会成功
+    public const ushort SM_GUILDDELMEMBER_FAIL  = 760;  // 移出或退出行会失败
+    public const ushort SM_GUILDRANKUPDATE_FAIL = 761;  // 职务信息更新失败
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }

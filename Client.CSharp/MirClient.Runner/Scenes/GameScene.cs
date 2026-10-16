@@ -261,6 +261,25 @@ public class GameScene : IScene
         {
             _chatLogs.Add($"[安全交易] {msg}");
         };
+        _engine.NetworkSession.OnOpenGuildDlg += (guildName, isMaster, notice) =>
+        {
+            _chatLogs.Add($"[行会系统] 欢迎回到【{guildName}】！{(isMaster ? "(您是本会掌门人)" : "")}");
+            _ = _engine.NetworkSession.SendGuildMemberListAsync();
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnOpenGuildDlgFail += () =>
+        {
+            _chatLogs.Add("[行会系统] 您尚未加入任何行会或行会已解散。");
+        };
+        _engine.NetworkSession.OnGuildMemberList += ranks =>
+        {
+            int total = ranks.Sum(r => r.Members.Count);
+            _chatLogs.Add($"[行会名册] 当前共有 {total} 名成员，分为 {ranks.Count} 级职务。");
+        };
+        _engine.NetworkSession.OnGuildActionResult += result =>
+        {
+            _chatLogs.Add($"[行会] {result.Message}");
+        };
     }
 
     public void Init()
@@ -487,6 +506,10 @@ public class GameScene : IScene
         {
             _showGuildWindow = !_showGuildWindow;
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            if (_showGuildWindow && _engine.NetworkSession.Step == NetworkStep.InWorld)
+            {
+                _ = _engine.NetworkSession.SendOpenGuildDlgAsync();
+            }
         }
 
         // V: 开关主城集市摆摊面板
@@ -2661,18 +2684,34 @@ public class GameScene : IScene
                 }
                 else if (cmd.SubAction == "leave")
                 {
-                    GuildManager.Instance.LeaveGuild();
-                    _chatLogs.Add("[行会] 您已退出行会，称号已卸下。");
-                }
-                else if (cmd.SubAction == "kick")
-                {
-                    if (GuildManager.Instance.RemoveMember(cmd.TargetName))
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
                     {
-                        _chatLogs.Add($"[行会] 成员【{cmd.TargetName}】已被逐出行会。");
+                        _ = _engine.NetworkSession.SendGuildDelMemberAsync(_playerName);
+                        _chatLogs.Add("[行会] 已向服务器发送退出行会请求...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[行会] 未在行会中找到成员【{cmd.TargetName}】！");
+                        GuildManager.Instance.LeaveGuild();
+                        _chatLogs.Add("[行会] 您已退出行会，称号已卸下。");
+                    }
+                }
+                else if (cmd.SubAction == "kick")
+                {
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendGuildDelMemberAsync(cmd.TargetName);
+                        _chatLogs.Add($"[行会] 已向服务器发送逐出成员【{cmd.TargetName}】请求...");
+                    }
+                    else
+                    {
+                        if (GuildManager.Instance.RemoveMember(cmd.TargetName))
+                        {
+                            _chatLogs.Add($"[行会] 成员【{cmd.TargetName}】已被逐出行会。");
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[行会] 未在行会中找到成员【{cmd.TargetName}】！");
+                        }
                     }
                 }
                 else if (cmd.SubAction == "rank")
@@ -2688,18 +2727,47 @@ public class GameScene : IScene
                 }
                 else if (cmd.SubAction == "add")
                 {
-                    if (!GuildManager.Instance.HasGuild)
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
                     {
-                        GuildManager.Instance.CreateGuild("傲视天下", _playerName, CharacterJob.Warrior, _progression.Level);
-                    }
-                    if (GuildManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, cmd.TargetRank))
-                    {
-                        _chatLogs.Add($"[行会] 招纳成员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob} [{cmd.TargetRank}]) 入会！");
+                        _ = _engine.NetworkSession.SendGuildAddMemberAsync(cmd.TargetName);
+                        _chatLogs.Add($"[行会] 已向服务器发送招募成员【{cmd.TargetName}】请求...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[行会] 招纳成员失败(可能已满员或已在行会中)。");
+                        if (!GuildManager.Instance.HasGuild)
+                        {
+                            GuildManager.Instance.CreateGuild("傲视天下", _playerName, CharacterJob.Warrior, _progression.Level);
+                        }
+                        if (GuildManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, cmd.TargetRank))
+                        {
+                            _chatLogs.Add($"[行会] 招纳成员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob} [{cmd.TargetRank}]) 入会！");
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[行会] 招纳成员失败(可能已满员或已在行会中)。");
+                        }
                     }
+                }
+                else if (cmd.SubAction == "notice")
+                {
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendGuildUpdateNoticeAsync(cmd.TargetName);
+                        _chatLogs.Add($"[行会] 已向服务器提交行会新公告...");
+                    }
+                    else
+                    {
+                        GuildManager.Instance.SyncGuildInfo(GuildManager.Instance.GuildName, cmd.TargetName);
+                        _chatLogs.Add($"[行会] 行会公告已更新为: {cmd.TargetName}");
+                    }
+                }
+                else if (cmd.SubAction == "open" || cmd.SubAction == "dlg" || cmd.SubAction == "panel")
+                {
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendOpenGuildDlgAsync();
+                    }
+                    _showGuildWindow = true;
                 }
                 break;
 

@@ -70,6 +70,10 @@ public class NetworkSession : IDisposable
     public event Action? OnDealSuccess;
     public event Action? OnDealCancel;
     public event Action<string>? OnDealActionResult;
+    public event Action<string, bool, string>? OnOpenGuildDlg;
+    public event Action? OnOpenGuildDlgFail;
+    public event Action<IReadOnlyList<GuildRankEntry>>? OnGuildMemberList;
+    public event Action<GuildActionResult>? OnGuildActionResult;
 
     public NetworkSession()
     {
@@ -615,6 +619,50 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 打开行会主视窗成功 (SM_OPENGUILDDLG = 753)
+                case ProtocolConsts.SM_OPENGUILDDLG:
+                {
+                    var (guildName, isMaster, notice) = GuildProtocolManager.ParseGuildDlg(e.Header, e.Payload);
+                    GuildManager.Instance.SyncGuildInfo(guildName, notice);
+                    Log($"[行会] 已进入【{guildName}】行会面板 (掌门人权限: {isMaster})");
+                    OnOpenGuildDlg?.Invoke(guildName, isMaster, notice);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 打开行会失败 (SM_OPENGUILDDLG_FAIL = 754)
+                case ProtocolConsts.SM_OPENGUILDDLG_FAIL:
+                {
+                    Log("[行会] 您尚未加入任何行会或行会已解散");
+                    OnOpenGuildDlgFail?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 下发行会全员职务与成员名册 (SM_SENDGUILDMEMBERLIST = 756)
+                case ProtocolConsts.SM_SENDGUILDMEMBERLIST:
+                {
+                    var ranks = GuildProtocolManager.ParseGuildMembers(e.Header, e.Payload);
+                    GuildManager.Instance.SyncServerRanks(ranks);
+                    Log($"[行会] 行会名册已同步，共 {ranks.Count} 级职务");
+                    OnGuildMemberList?.Invoke(ranks);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 招募与退会操作反馈
+                case ProtocolConsts.SM_GUILDADDMEMBER_OK:
+                case ProtocolConsts.SM_GUILDADDMEMBER_FAIL:
+                case ProtocolConsts.SM_GUILDDELMEMBER_OK:
+                case ProtocolConsts.SM_GUILDDELMEMBER_FAIL:
+                {
+                    var actionResult = GuildProtocolManager.ParseGuildActionResult(e.Header, e.Payload, e.Header.Ident);
+                    Log($"[行会反馈] {actionResult.Message}");
+                    OnGuildActionResult?.Invoke(actionResult);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -800,6 +848,60 @@ public class NetworkSession : IDisposable
     public async Task SendDealCancelAsync()
     {
         var (header, payload) = DealProtocolManager.CreateDealCancelPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 请求打开行会主面板 (CM_OPENGUILDDLG = 1035)
+    /// </summary>
+    public async Task SendOpenGuildDlgAsync()
+    {
+        var (header, payload) = GuildProtocolManager.CreateOpenGuildDlgPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 查询行会主页信息 (CM_GUILDHOME = 1036)
+    /// </summary>
+    public async Task SendGuildHomeAsync()
+    {
+        var (header, payload) = GuildProtocolManager.CreateGuildHomePacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 请求行会成员名册与职务列表 (CM_GUILDMEMBERLIST = 1037)
+    /// </summary>
+    public async Task SendGuildMemberListAsync()
+    {
+        var (header, payload) = GuildProtocolManager.CreateGuildMemberListPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 招募新成员入会 (CM_GUILDADDMEMBER = 1038)
+    /// </summary>
+    public async Task SendGuildAddMemberAsync(string targetName)
+    {
+        var (header, payload) = GuildProtocolManager.CreateGuildAddMemberPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 逐出成员或主动退出行会 (CM_GUILDDELMEMBER = 1039)
+    /// </summary>
+    public async Task SendGuildDelMemberAsync(string targetName)
+    {
+        var (header, payload) = GuildProtocolManager.CreateGuildDelMemberPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 会长修改行会公告 (CM_GUILDUPDATENOTICE = 1040)
+    /// </summary>
+    public async Task SendGuildUpdateNoticeAsync(string notice)
+    {
+        var (header, payload) = GuildProtocolManager.CreateGuildUpdateNoticePacket(notice);
         await SendGamePacketAsync(header, payload);
     }
 

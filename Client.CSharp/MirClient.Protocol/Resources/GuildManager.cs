@@ -160,6 +160,74 @@ public class GuildManager
     }
 
     /// <summary>
+    /// 判断玩家是否为行会成员
+    /// </summary>
+    public bool IsMember(string name)
+    {
+        return _members.Any(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// 查询成员职务
+    /// </summary>
+    public GuildRank GetMemberRank(string name)
+    {
+        var m = _members.FirstOrDefault(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return m?.Rank ?? GuildRank.Member;
+    }
+
+    /// <summary>
+    /// 从服务端同步行会名册 (SM_SENDGUILDMEMBERLIST = 756)
+    /// </summary>
+    public void SyncServerRanks(IReadOnlyList<GuildRankEntry> ranks)
+    {
+        if (ranks == null || ranks.Count == 0) return;
+
+        var oldDict = _members.ToDictionary(m => m.Name, StringComparer.OrdinalIgnoreCase);
+        _members.Clear();
+
+        foreach (var r in ranks)
+        {
+            GuildRank rankEnum = r.RankNo switch
+            {
+                0 => GuildRank.Leader,
+                1 => GuildRank.ViceLeader,
+                2 => GuildRank.Elder,
+                3 => GuildRank.Elite,
+                _ => GuildRank.Member
+            };
+
+            foreach (var memberName in r.Members)
+            {
+                if (oldDict.TryGetValue(memberName, out var oldMember))
+                {
+                    oldMember.Rank = rankEnum;
+                    _members.Add(oldMember);
+                }
+                else
+                {
+                    _members.Add(new GuildMember(memberName, CharacterJob.Warrior, 35, rankEnum));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 从服务端同步行会基础信息与公告
+    /// </summary>
+    public void SyncGuildInfo(string guildName, string notice)
+    {
+        if (!string.IsNullOrWhiteSpace(guildName))
+        {
+            GuildName = guildName.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(notice))
+        {
+            Notice = notice.Trim();
+        }
+    }
+
+    /// <summary>
     /// 重置状态（测试使用）
     /// </summary>
     public void Reset()
