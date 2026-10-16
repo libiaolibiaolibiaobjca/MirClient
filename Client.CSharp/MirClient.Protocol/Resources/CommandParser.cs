@@ -43,6 +43,7 @@ public enum ParsedCommandType
     Internal,   // @internal 内功等级/内力/经验管理
     Combo,      // @combo 职业连击绝学释放与经脉贯通
     Wolong,     // @wolong 卧龙山庄探秘与五元宝藏
+    Wine,       // @wine 盟重酒馆酿酒与药力醉酒度
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1362,6 +1363,37 @@ public static class CommandParser
                 };
             }
 
+            case "wine":
+            case "酒":
+            case "酿酒":
+            case "饮酒":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "status";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+                int count = 0;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int c))
+                {
+                    count = c;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Wine,
+                    SubAction = sub,
+                    TargetName = extra,
+                    Amount = count,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "brew" or "酿造" => $"开坛酿造美酒【{extra}】",
+                        "drink" or "喝" => $"开坛痛饮美酒【{extra}】",
+                        "spring" or "涌泉" => "探索并汲取地下天然涌泉",
+                        "water" or "泉水" => $"获取天泉水 +{count} 坛",
+                        _ => "盟重酒馆酿酒与药力醉酒度状态查询"
+                    }
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1372,6 +1404,7 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
+                              "  @wine [brew/drink/spring/status]      - 盟重酒馆泉水酿酒与药力醉酒度\n" +
                               "  @wolong [enter/spawn/search/treasure] - 卧龙山庄五元守护者与火龙宝藏\n" +
                               "  @internal [lvl/force/exp/full]- 内功等级与内力护盾调试\n" +
                               "  @combo [cast/unlock/full]     - 释放本职业多段连击绝学 (Ctrl+D / C)\n" +

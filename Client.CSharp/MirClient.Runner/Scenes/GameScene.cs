@@ -412,6 +412,10 @@ public class GameScene : IScene
             {
                 PerformWolongSearch();
             }
+            else if (Raylib.IsKeyPressed(KeyboardKey.B))
+            {
+                PerformDrinkWine();
+            }
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.M) && !_isChatInputActive)
         {
@@ -424,6 +428,10 @@ public class GameScene : IScene
         else if (Raylib.IsKeyPressed(KeyboardKey.Z) && !_isChatInputActive)
         {
             PerformWolongSearch();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.B) && !_isChatInputActive)
+        {
+            PerformDrinkWine();
         }
 
         // 实时同步自身血量与地图至组队列表
@@ -691,6 +699,7 @@ public class GameScene : IScene
             _chatLogs.Add(wolongEvt);
             SoundManager.Instance.Play(SoundEffectType.Teleport);
         }
+        WineManager.Instance.Update(dt);
 
         // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
         if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
@@ -1903,6 +1912,9 @@ public class GameScene : IScene
         // 2.8 卧龙山庄探秘与五元宝藏 HUD 标牌
         RenderWolongBadge(boardX, boardY);
 
+        // 2.9 盟重酒馆泉水酿酒与药力醉酒度 HUD 标牌
+        RenderWineBadge(boardX, boardY);
+
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
 
@@ -3035,6 +3047,54 @@ public class GameScene : IScene
                 {
                     string orbs = string.Join(",", mgr.CollectedOrbs);
                     _chatLogs.Add($"[卧龙山庄] 状态: {mgr.Phase} | 剩余时间: {(int)mgr.RemainingTime}s | 灵符: {mgr.CharmsCount}张 | 残页: {mgr.AncientPages} | 五元灵珠: {mgr.CollectedOrbs.Count}/5 ({orbs})");
+                }
+                break;
+            }
+
+            case ParsedCommandType.Wine:
+            {
+                var mgr = WineManager.Instance;
+                if (cmd.SubAction == "brew")
+                {
+                    WineType wType = cmd.TargetName switch
+                    {
+                        var n when n.Contains("红曲") => WineType.RedYeast,
+                        var n when n.Contains("果") => WineType.Fruit,
+                        var n when n.Contains("花雕") => WineType.Huadiao,
+                        _ => WineType.Sorghum
+                    };
+                    var (s, bMsg) = mgr.BrewWine(wType);
+                    _chatLogs.Add(bMsg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.UsePotion);
+                }
+                else if (cmd.SubAction == "drink")
+                {
+                    WineType wType = cmd.TargetName switch
+                    {
+                        var n when n.Contains("红曲") => WineType.RedYeast,
+                        var n when n.Contains("果") => WineType.Fruit,
+                        var n when n.Contains("花雕") => WineType.Huadiao,
+                        _ => WineType.Sorghum
+                    };
+                    PerformDrinkWine(wType);
+                }
+                else if (cmd.SubAction == "spring")
+                {
+                    Vector2 spTile = _playerTilePos + new Vector2(2, 0);
+                    var sp = mgr.SpawnSpringPoint(spTile);
+                    _chatLogs.Add($"[地下涌泉] 身边地表泉眼汩汩涌现出天然天泉水！(坐标: {spTile.X:F0},{spTile.Y:F0} 储量: {sp.RemainingWater}坛)");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "water" && cmd.Amount > 0)
+                {
+                    mgr.SpringWaterJars += cmd.Amount;
+                    _chatLogs.Add($"[酒馆GM] 充值天泉水成功！当前拥有天泉水: {mgr.SpringWaterJars} 坛");
+                    SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                }
+                else
+                {
+                    string buffInfo = mgr.HasActiveBuff ? $"增益中({mgr.CurrentBuff!.Name} 余{mgr.CurrentBuff.Duration:F0}s)" : "无醉酒增益";
+                    _chatLogs.Add($"[盟重酒馆] 醉酒度: {(int)mgr.CurrentDrunkenness}/{(int)mgr.AlcoholTolerance} | 药力值: {mgr.WinePotency} (境界: {mgr.PotencyLevel}重) | 天泉水: {mgr.SpringWaterJars}坛 | 状态: {buffInfo}");
                 }
                 break;
             }
@@ -5942,6 +6002,86 @@ public class GameScene : IScene
                 string msg = mgr.StartInstance();
                 _chatLogs.Add(msg);
                 SoundManager.Instance.Play(SoundEffectType.Teleport);
+            }
+        }
+    }
+
+    private void PerformDrinkWine(WineType type = WineType.Sorghum)
+    {
+        var mgr = WineManager.Instance;
+        if (mgr.WineInventory.GetValueOrDefault(type, 0) <= 0)
+        {
+            var avail = mgr.WineInventory.FirstOrDefault(kv => kv.Value > 0).Key;
+            if (mgr.WineInventory.GetValueOrDefault(avail, 0) > 0)
+            {
+                type = avail;
+            }
+        }
+
+        var (success, msg) = mgr.DrinkWine(type);
+        _chatLogs.Add(msg);
+        if (success)
+        {
+            SoundManager.Instance.Play(SoundEffectType.UsePotion);
+            _skillFx.SpawnLevelUp(_playerTilePos);
+        }
+        else
+        {
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+    }
+
+    private void RenderWineBadge(int boardX, int boardY)
+    {
+        var mgr = WineManager.Instance;
+        int badgeX = boardX + 332;
+        int badgeY = boardY - 30;
+        int badgeW = 104;
+        int badgeH = 24;
+
+        Rectangle badgeRec = new(badgeX, badgeY, badgeW, badgeH);
+        Raylib.DrawRectangleRec(badgeRec, new Color((byte)32, (byte)14, (byte)14, (byte)220));
+
+        Color borderCol;
+        if (mgr.HasActiveBuff)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            borderCol = new Color((byte)255, (byte)140, (byte)40, (byte)(255 * pulse));
+        }
+        else
+        {
+            borderCol = Color.DarkGray;
+        }
+        Raylib.DrawRectangleLines(badgeX, badgeY, badgeW, badgeH, borderCol);
+
+        int drunk = (int)mgr.CurrentDrunkenness;
+        int maxTol = (int)mgr.AlcoholTolerance;
+        FontManager.DrawTextWithShadow($"[酒]醉:{drunk}/{maxTol} 泉:{mgr.SpringWaterJars}", badgeX + 4, badgeY + 2, 9, new Color((byte)255, (byte)180, (byte)100, (byte)255), Color.Black);
+
+        if (mgr.HasActiveBuff)
+        {
+            int rem = (int)mgr.CurrentBuff!.Duration;
+            FontManager.DrawText($"[酒香]{rem}s 攻+{mgr.CurrentBuff.BonusDc}", badgeX + 4, badgeY + 12, 9, Color.Gold);
+        }
+        else
+        {
+            FontManager.DrawText($"药力Lv.{mgr.PotencyLevel} [B饮酒]", badgeX + 4, badgeY + 12, 9, Color.LightGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        if (Raylib.CheckCollisionPointRec(mPos, badgeRec))
+        {
+            Raylib.DrawRectangleLinesEx(badgeRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                PerformDrinkWine();
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+            {
+                WineType toBrew = mgr.SpringWaterJars >= 2 ? WineType.Huadiao : WineType.Sorghum;
+                var (s, bMsg) = mgr.BrewWine(toBrew);
+                _chatLogs.Add(bMsg);
+                if (s) SoundManager.Instance.Play(SoundEffectType.UsePotion);
             }
         }
     }
