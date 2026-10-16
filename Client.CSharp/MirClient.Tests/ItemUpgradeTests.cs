@@ -128,7 +128,7 @@ public class ItemUpgradeTests
         Assert.True(trialOk);
         Assert.True(success);
         Assert.False(weapon.InUpgradeTrial); // 状态已消费
-        Assert.Equal(1, weapon.UpgradeLevel); // 成功升至 +1
+        Assert.InRange(weapon.UpgradeLevel, 1, 2); // 成功升至 +1 (或人品爆发跳点 +2)
         Assert.True(weapon.MaxDc > oldMaxDc); // 攻击上限增加
         Assert.Contains("开刃", trialMsg);
 

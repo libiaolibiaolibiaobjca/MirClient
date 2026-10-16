@@ -86,6 +86,9 @@ public class SocialManager
 
     public event Action<string, bool>? OnFriendOnlineStateChanged;
     public event Action<string, int>? OnApprenticeLeveledUp;
+    public event Action? OnFriendListUpdated;
+    public event Action? OnMasterListUpdated;
+    public event Action<string>? OnSocialNotice;
 
     public void Reset()
     {
@@ -278,6 +281,87 @@ public class SocialManager
         var oldMaster = MasterName;
         MasterName = null;
         return (true, $"您已脱离【{oldMaster}】师门，从此独自闯荡玛法大陆。");
+    }
+
+    #endregion
+
+    #region 服务端网络同步与广播
+
+    /// <summary>
+    /// 全量同步服务端下发的好友列表 (SM_FRIENDLIST)
+    /// </summary>
+    public void SyncServerFriendList(IEnumerable<FriendInfo> friends)
+    {
+        _friends.Clear();
+        if (friends != null)
+        {
+            foreach (var f in friends)
+            {
+                if (_friends.Count >= MaxFriendsCount) break;
+                _friends.Add(f);
+            }
+        }
+        OnFriendListUpdated?.Invoke();
+    }
+
+    /// <summary>
+    /// 同步服务端好友实时上下线状态 (SM_FRIEND_ONOFF)
+    /// </summary>
+    public void SyncServerFriendOnOff(string name, bool isOnline, string? mapName)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var friend = GetFriend(name);
+        if (friend != null)
+        {
+            friend.IsOnline = isOnline;
+            if (!string.IsNullOrEmpty(mapName))
+            {
+                friend.MapName = mapName;
+            }
+            OnFriendOnlineStateChanged?.Invoke(name, isOnline);
+        }
+    }
+
+    /// <summary>
+    /// 全量同步服务端下发的师门与门徒名册 (SM_MASTER_LIST)
+    /// </summary>
+    public void SyncServerMasterList(string? masterName, bool isGraduated, int reputation, IEnumerable<ApprenticeInfo> apprentices)
+    {
+        MasterName = string.IsNullOrWhiteSpace(masterName) ? null : masterName;
+        IsGraduated = isGraduated;
+        Reputation = Math.Max(0, reputation);
+
+        _apprentices.Clear();
+        if (apprentices != null)
+        {
+            foreach (var a in apprentices)
+            {
+                _apprentices.Add(a);
+            }
+        }
+        OnMasterListUpdated?.Invoke();
+    }
+
+    /// <summary>
+    /// 同步服务端门下弟子升级广播 (SM_APPRENTICE_LEVELUP)
+    /// </summary>
+    public void SyncServerApprenticeLevelUp(string apprenticeName, int newLevel, int repGain)
+    {
+        if (string.IsNullOrWhiteSpace(apprenticeName)) return;
+
+        var apprentice = _apprentices.FirstOrDefault(a => a.Name.Equals(apprenticeName, StringComparison.OrdinalIgnoreCase));
+        if (apprentice != null)
+        {
+            apprentice.Level = Math.Max(apprentice.Level, newLevel);
+        }
+
+        if (repGain > 0)
+        {
+            Reputation += repGain;
+        }
+
+        OnApprenticeLeveledUp?.Invoke(apprenticeName, newLevel);
+        OnMasterListUpdated?.Invoke();
     }
 
     #endregion

@@ -81,6 +81,14 @@ public class NetworkSession : IDisposable
     public event Action<CastleWallStatusRecord>? OnWallStatusChanged;
     public event Action<CastleOwnerRecord>? OnCastleOwnerChanged;
     public event Action<int>? OnCastleGold;
+    public event Action<IReadOnlyList<FriendInfo>>? OnFriendListReceived;
+    public event Action<FriendInfo>? OnFriendAdded;
+    public event Action<bool, string>? OnFriendAddFailed;
+    public event Action<string>? OnFriendRemoved;
+    public event Action<string, bool, string>? OnFriendOnlineChanged;
+    public event Action<bool, int, string>? OnMasterResult;
+    public event Action<MasterSyncRecord>? OnMasterListReceived;
+    public event Action<string, int, int>? OnApprenticeLeveledUp;
 
     public NetworkSession()
     {
@@ -759,6 +767,96 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 下发好友全员列表 (SM_FRIENDLIST = 773)
+                case ProtocolConsts.SM_FRIENDLIST:
+                {
+                    var friends = SocialProtocolManager.ParseFriendList(e.Payload);
+                    SocialManager.Instance.SyncServerFriendList(friends);
+                    Log($"[好友系统] 已同步全量好友列表，共 {friends.Count} 位江湖挚友");
+                    OnFriendListReceived?.Invoke(friends);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 添加好友成功 (SM_ADDFRIEND_OK = 774)
+                case ProtocolConsts.SM_ADDFRIEND_OK:
+                {
+                    var friend = SocialProtocolManager.ParseFriendRecord(e.Payload);
+                    if (friend != null)
+                    {
+                        SocialManager.Instance.AddFriend(friend.Name, friend.Job, friend.Level, friend.MapName, friend.IsOnline);
+                        Log($"[好友系统] 成功添加好友【{friend.Name}】(职业: {friend.JobName}, 等级: {friend.Level})");
+                        OnFriendAdded?.Invoke(friend);
+                    }
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 添加好友失败 (SM_ADDFRIEND_FAIL = 775)
+                case ProtocolConsts.SM_ADDFRIEND_FAIL:
+                {
+                    string reason = !string.IsNullOrWhiteSpace(e.Payload) ? e.Payload.Trim() : "添加好友失败";
+                    Log($"[好友系统] 添加好友失败: {reason}");
+                    OnFriendAddFailed?.Invoke(false, reason);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 删除好友成功 (SM_DELFRIEND_OK = 776)
+                case ProtocolConsts.SM_DELFRIEND_OK:
+                {
+                    string friendName = e.Payload?.Trim() ?? string.Empty;
+                    SocialManager.Instance.RemoveFriend(friendName);
+                    Log($"[好友系统] 已将【{friendName}】从好友名册中删除");
+                    OnFriendRemoved?.Invoke(friendName);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 好友上下线实时广播 (SM_FRIEND_ONOFF = 777)
+                case ProtocolConsts.SM_FRIEND_ONOFF:
+                {
+                    var (fName, isOnline, fMap) = SocialProtocolManager.ParseFriendOnOff(e.Header, e.Payload);
+                    SocialManager.Instance.SyncServerFriendOnOff(fName, isOnline, fMap);
+                    string statusStr = isOnline ? $"上线了 (身处 {fMap})" : "离线了";
+                    Log($"[好友状态] 您的江湖好友【{fName}】{statusStr}");
+                    OnFriendOnlineChanged?.Invoke(fName, isOnline, fMap);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 师徒结拜/脱离结果广播 (SM_MASTER_RESULT = 778)
+                case ProtocolConsts.SM_MASTER_RESULT:
+                {
+                    var (success, code, message) = SocialProtocolManager.ParseMasterResult(e.Header, e.Payload);
+                    Log($"[师徒武馆] {message}");
+                    OnMasterResult?.Invoke(success, code, message);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 师门与门徒名册同步 (SM_MASTER_LIST = 779)
+                case ProtocolConsts.SM_MASTER_LIST:
+                {
+                    var record = SocialProtocolManager.ParseMasterList(e.Header, e.Payload);
+                    SocialManager.Instance.SyncServerMasterList(record.MasterName, record.IsGraduated, record.Reputation, record.Apprentices);
+                    Log($"[师徒武馆] 师门同步: 师父【{record.MasterName ?? "无"}】, 弟子数: {record.Apprentices.Count}, 声望: {record.Reputation}");
+                    OnMasterListReceived?.Invoke(record);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 门下弟子升级广播 (SM_APPRENTICE_LEVELUP = 780)
+                case ProtocolConsts.SM_APPRENTICE_LEVELUP:
+                {
+                    var (appName, newLvl, repGain) = SocialProtocolManager.ParseApprenticeLevelUp(e.Header, e.Payload);
+                    SocialManager.Instance.SyncServerApprenticeLevelUp(appName, newLvl, repGain);
+                    Log($"[师门捷报] 门下弟子【{appName}】勤学苦练荣升至 {newLvl} 级！师父荣获声望奖励 {repGain} 点");
+                    OnApprenticeLeveledUp?.Invoke(appName, newLvl, repGain);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -1034,6 +1132,69 @@ public class NetworkSession : IDisposable
     public async Task SendCastleWithdrawGoldAsync(int amount)
     {
         var (header, payload) = SabukSiegeProtocolManager.CreateCastleWithdrawGoldPacket(amount);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送添加好友请求 (CM_ADDFRIEND = 1050)
+    /// </summary>
+    public async Task SendAddFriendAsync(string friendName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateAddFriendPacket(friendName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送删除好友请求 (CM_DELFRIEND = 1051)
+    /// </summary>
+    public async Task SendDelFriendAsync(string friendName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateDelFriendPacket(friendName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送查询好友全员名册请求 (CM_QUERYFRIENDLIST = 1052)
+    /// </summary>
+    public async Task SendQueryFriendListAsync()
+    {
+        var (header, payload) = SocialProtocolManager.CreateQueryFriendListPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发起拜师或收徒请求 (CM_MASTER_REQUEST = 1053)
+    /// </summary>
+    public async Task SendMasterRequestAsync(bool isApprentice, string targetName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateMasterRequestPacket(isApprentice, targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 回应拜师或收徒申请 (CM_MASTER_RESPONSE = 1054)
+    /// </summary>
+    public async Task SendMasterResponseAsync(bool accept, string applicantName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateMasterResponsePacket(accept, applicantName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 逐出师门或脱离师门 (CM_MASTER_EXPEL = 1055)
+    /// </summary>
+    public async Task SendMasterExpelAsync(bool isExpelApprentice, string targetName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateMasterExpelPacket(isExpelApprentice, targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 举行出师典礼 (CM_MASTER_GRADUATE = 1056)
+    /// </summary>
+    public async Task SendMasterGraduateAsync(bool isSelf, string apprenticeName)
+    {
+        var (header, payload) = SocialProtocolManager.CreateMasterGraduatePacket(isSelf, apprenticeName);
         await SendGamePacketAsync(header, payload);
     }
 

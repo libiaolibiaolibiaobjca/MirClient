@@ -329,6 +329,47 @@ public class GameScene : IScene
         {
             _chatLogs.Add($"【沙城金库】城池累积税金已同步: {gold:N0} 金币。");
         };
+        _engine.NetworkSession.OnFriendListReceived += friends =>
+        {
+            _chatLogs.Add($"[好友系统] 已同步江湖好友名册，当前共有 {friends.Count} 位好友。");
+        };
+        _engine.NetworkSession.OnFriendAdded += friend =>
+        {
+            _chatLogs.Add($"[好友系统] 成功添加好友【{friend.Name}】(职业: {friend.JobName}, 等级: {friend.Level})。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnFriendAddFailed += (success, reason) =>
+        {
+            _chatLogs.Add($"[好友系统] 添加好友失败: {reason}");
+        };
+        _engine.NetworkSession.OnFriendRemoved += friendName =>
+        {
+            _chatLogs.Add($"[好友系统] 已将【{friendName}】从好友名册中删除。");
+        };
+        _engine.NetworkSession.OnFriendOnlineChanged += (name, isOnline, map) =>
+        {
+            _chatLogs.Add(isOnline 
+                ? $"【好友动态】您的好友【{name}】上线了 (身处 {map})。"
+                : $"【好友动态】您的好友【{name}】离开了玛法大陆。");
+        };
+        _engine.NetworkSession.OnMasterResult += (success, code, msg) =>
+        {
+            _chatLogs.Add($"[师徒武馆] {msg}");
+            if (success)
+            {
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        };
+        _engine.NetworkSession.OnMasterListReceived += record =>
+        {
+            string masterStr = record.MasterName != null ? $"师父【{record.MasterName}】" : "无师承";
+            _chatLogs.Add($"[师徒武馆] 师门更新: {masterStr} | 门下弟子: {record.Apprentices.Count} 人 | 声望: {record.Reputation} 点。");
+        };
+        _engine.NetworkSession.OnApprenticeLeveledUp += (appName, newLvl, repGain) =>
+        {
+            _chatLogs.Add($"【师门喜讯】门下弟子【{appName}】武艺精进升至 {newLvl} 级！师父荣获声望奖励 {repGain} 点！");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
     }
 
     public void Init()
@@ -3160,47 +3201,74 @@ public class GameScene : IScene
 
             case ParsedCommandType.Master:
             {
-                var res = SocialManager.Instance.BecomeApprentice(cmd.TargetName, _progression.Level);
-                _chatLogs.Add($"[拜师] {res.Message}");
-                if (res.Success)
+                if (_engine.NetworkSession.IsConnected)
                 {
-                    _skillFx.SpawnLevelUp(_playerTilePos);
-                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    _ = _engine.NetworkSession.SendMasterRequestAsync(true, cmd.TargetName);
+                    _chatLogs.Add($"[拜师] 已向【{cmd.TargetName}】发送拜师请帖，静候师父应允...");
+                }
+                else
+                {
+                    var res = SocialManager.Instance.BecomeApprentice(cmd.TargetName, _progression.Level);
+                    _chatLogs.Add($"[拜师] {res.Message}");
+                    if (res.Success)
+                    {
+                        _skillFx.SpawnLevelUp(_playerTilePos);
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
                 }
                 break;
             }
 
             case ParsedCommandType.Apprentice:
             {
-                var res = SocialManager.Instance.AcceptApprentice(cmd.TargetName, cmd.TargetJob, cmd.Amount, _progression.Level);
-                _chatLogs.Add($"[收徒] {res.Message}");
-                if (res.Success)
+                if (_engine.NetworkSession.IsConnected)
                 {
-                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    _ = _engine.NetworkSession.SendMasterRequestAsync(false, cmd.TargetName);
+                    _chatLogs.Add($"[收徒] 已向【{cmd.TargetName}】递交门徒招纳令...");
+                }
+                else
+                {
+                    var res = SocialManager.Instance.AcceptApprentice(cmd.TargetName, cmd.TargetJob, cmd.Amount, _progression.Level);
+                    _chatLogs.Add($"[收徒] {res.Message}");
+                    if (res.Success)
+                    {
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
                 }
                 break;
             }
 
             case ParsedCommandType.Graduate:
             {
-                if (string.IsNullOrEmpty(cmd.TargetName))
+                if (_engine.NetworkSession.IsConnected)
                 {
-                    var selfRes = SocialManager.Instance.SelfGraduate(_progression.Level);
-                    _chatLogs.Add($"[出师] {selfRes.Message}");
-                    if (selfRes.Success)
-                    {
-                        _skillFx.SpawnLevelUp(_playerTilePos);
-                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
-                    }
+                    bool isSelf = string.IsNullOrEmpty(cmd.TargetName);
+                    _ = _engine.NetworkSession.SendMasterGraduateAsync(isSelf, cmd.TargetName);
+                    _chatLogs.Add(isSelf 
+                        ? "[出师] 已向比奇武馆申请正式出师典礼..." 
+                        : $"[出师] 已为弟子【{cmd.TargetName}】向武馆主持出师大典...");
                 }
                 else
                 {
-                    var gradRes = SocialManager.Instance.GraduateApprentice(cmd.TargetName);
-                    _chatLogs.Add($"[出师] {gradRes.Message}");
-                    if (gradRes.Success)
+                    if (string.IsNullOrEmpty(cmd.TargetName))
                     {
-                        _skillFx.SpawnLevelUp(_playerTilePos);
-                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        var selfRes = SocialManager.Instance.SelfGraduate(_progression.Level);
+                        _chatLogs.Add($"[出师] {selfRes.Message}");
+                        if (selfRes.Success)
+                        {
+                            _skillFx.SpawnLevelUp(_playerTilePos);
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        }
+                    }
+                    else
+                    {
+                        var gradRes = SocialManager.Instance.GraduateApprentice(cmd.TargetName);
+                        _chatLogs.Add($"[出师] {gradRes.Message}");
+                        if (gradRes.Success)
+                        {
+                            _skillFx.SpawnLevelUp(_playerTilePos);
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        }
                     }
                 }
                 break;
@@ -3210,14 +3278,30 @@ public class GameScene : IScene
             {
                 if (cmd.SubAction == "add")
                 {
-                    var addRes = SocialManager.Instance.AddFriend(cmd.TargetName, cmd.TargetJob, cmd.Amount);
-                    _chatLogs.Add($"[好友] {addRes.Message}");
-                    if (addRes.Success) SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    if (_engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendAddFriendAsync(cmd.TargetName);
+                        _chatLogs.Add($"[好友] 已向服务端申请添加【{cmd.TargetName}】为好友...");
+                    }
+                    else
+                    {
+                        var addRes = SocialManager.Instance.AddFriend(cmd.TargetName, cmd.TargetJob, cmd.Amount);
+                        _chatLogs.Add($"[好友] {addRes.Message}");
+                        if (addRes.Success) SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                    }
                 }
                 else if (cmd.SubAction == "del")
                 {
-                    var delRes = SocialManager.Instance.RemoveFriend(cmd.TargetName);
-                    _chatLogs.Add($"[好友] {delRes.Message}");
+                    if (_engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendDelFriendAsync(cmd.TargetName);
+                        _chatLogs.Add($"[好友] 已向服务端申请删除好友【{cmd.TargetName}】...");
+                    }
+                    else
+                    {
+                        var delRes = SocialManager.Instance.RemoveFriend(cmd.TargetName);
+                        _chatLogs.Add($"[好友] {delRes.Message}");
+                    }
                 }
                 else if (cmd.SubAction == "online")
                 {
@@ -3233,6 +3317,10 @@ public class GameScene : IScene
                 {
                     _showSocialWindow = !_showSocialWindow;
                     _socialTab = 0;
+                    if (_showSocialWindow && _engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendQueryFriendListAsync();
+                    }
                     SoundManager.Instance.Play(SoundEffectType.ButtonClick);
                 }
                 break;

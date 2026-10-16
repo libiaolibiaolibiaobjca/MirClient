@@ -50,6 +50,13 @@ public static class ProtocolConsts
     public const ushort CM_GUILDUPDATERANKINFO = 1041; // 更新行会职务头衔设置
     public const ushort CM_GUILDWAR      = 1042; // 申请开启沙巴克攻城战 / 行会宣战请求 (Payload: 目标行会名)
     public const ushort CM_CASTLEWITHDRAWGOLD = 1043; // 沙城城主提取城池税金 (Recog: 提款金额)
+    public const ushort CM_ADDFRIEND     = 1050; // 申请添加好友 (Payload: 目标角色名)
+    public const ushort CM_DELFRIEND     = 1051; // 请求删除好友 (Payload: 好友角色名)
+    public const ushort CM_QUERYFRIENDLIST = 1052; // 请求查询好友名册
+    public const ushort CM_MASTER_REQUEST = 1053; // 拜师或收徒请求 (Recog: 1=请求拜师, 2=请求收徒, Payload: 对方名字)
+    public const ushort CM_MASTER_RESPONSE = 1054; // 回应拜师/收徒申请 (Recog: 1=同意, 0=拒绝, Payload: 申请人名字)
+    public const ushort CM_MASTER_EXPEL  = 1055; // 逐出师门或脱离师门 (Recog: 1=逐出徒弟, 2=脱离师门, Payload: 目标名字)
+    public const ushort CM_MASTER_GRADUATE = 1056; // 举行出师典礼 (Recog: 1=师父主持, 2=弟子自出师, Payload: 弟子名字)
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -151,5 +158,13 @@ public static class ProtocolConsts
     public const ushort SM_SABUK_WALLSTATUS     = 763;  // 沙巴克城门与工事防御状态广播 (Recog: 破损等级, Param: 残余HP%, Tag: 1=开启/0=关闭)
     public const ushort SM_CASTLE_OWNER         = 764;  // 沙巴克霸主行会与掌门人全服广播 (Payload: 行会名/掌门人名/占领日期)
     public const ushort SM_WARSTATUS            = 765;  // 沙巴克攻城战阶段状态全服同步 (Recog: 阶段代码 0~3, Param: 剩余时长秒数)
+    public const ushort SM_FRIENDLIST           = 773;  // 下发好友全员列表 (Payload: Name/Job/Level/MapName/IsOnline/)
+    public const ushort SM_ADDFRIEND_OK         = 774;  // 添加好友成功确认 (Payload: Name/Job/Level/MapName/IsOnline)
+    public const ushort SM_ADDFRIEND_FAIL       = 775;  // 添加好友失败通知 (Recog: 错误码, Payload: 错误描述)
+    public const ushort SM_DELFRIEND_OK         = 776;  // 删除好友成功通知 (Payload: 被删除好友名)
+    public const ushort SM_FRIEND_ONOFF         = 777;  // 好友上下线实时状态广播 (Recog: 1=上线/0=下线, Payload: Name/MapName)
+    public const ushort SM_MASTER_RESULT        = 778;  // 师徒结拜/脱离结果反馈 (Recog: 状态码 1~4, Payload: 提示信息)
+    public const ushort SM_MASTER_LIST          = 779;  // 下发师门信息与弟子列表 (Recog: 声望值, Payload: 师门与门徒名册)
+    public const ushort SM_APPRENTICE_LEVELUP   = 780;  // 门下弟子升级广播 (Recog: 弟子新等级, Param: 师父声望奖励, Payload: 弟子名)
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }
