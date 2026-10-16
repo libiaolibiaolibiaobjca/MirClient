@@ -44,6 +44,7 @@ public enum ParsedCommandType
     Combo,      // @combo 职业连击绝学释放与经脉贯通
     Wolong,     // @wolong 卧龙山庄探秘与五元宝藏
     Wine,       // @wine 盟重酒馆酿酒与药力醉酒度
+    Pass,       // @pass 天雷天关试炼与王者神殿副本
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1394,6 +1395,39 @@ public static class CommandParser
                 };
             }
 
+            case "pass":
+            case "天关":
+            case "王者神殿":
+            case "天雷天关":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "status";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+                int count = 0;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int c))
+                {
+                    count = c;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Pass,
+                    SubAction = sub,
+                    TargetName = extra,
+                    Amount = count,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "enter" or "进入" => "挑战并踏入天关试炼层",
+                        "buy" or "购买" or "兑换" => $"兑换天关灵符 +{count} 张",
+                        "defeat" or "击败" or "斩杀" => "击破当前天关守卫召唤宝箱",
+                        "chest" or "开箱" or "宝箱" => $"开启天关【{(extra.Equals("gold", StringComparison.OrdinalIgnoreCase) || extra == "金" ? "金" : "银")}】宝箱",
+                        "next" or "下层" => "跨越传送阵前往天关下一层/登顶王者神殿",
+                        "exit" or "离开" or "回城" => "离开天关试炼返回盟重安全区",
+                        _ => "天关试炼层数与灵符状态查询"
+                    }
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1404,6 +1438,7 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
+                              "  @pass [enter/buy/defeat/chest/next/exit]- 天雷天关试炼与王者神殿副本\n" +
                               "  @wine [brew/drink/spring/status]      - 盟重酒馆泉水酿酒与药力醉酒度\n" +
                               "  @wolong [enter/spawn/search/treasure] - 卧龙山庄五元守护者与火龙宝藏\n" +
                               "  @internal [lvl/force/exp/full]- 内功等级与内力护盾调试\n" +

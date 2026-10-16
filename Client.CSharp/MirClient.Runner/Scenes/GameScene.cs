@@ -416,6 +416,10 @@ public class GameScene : IScene
             {
                 PerformDrinkWine();
             }
+            else if (Raylib.IsKeyPressed(KeyboardKey.T))
+            {
+                PerformHeavenlyPassAction();
+            }
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.M) && !_isChatInputActive)
         {
@@ -432,6 +436,10 @@ public class GameScene : IScene
         else if (Raylib.IsKeyPressed(KeyboardKey.B) && !_isChatInputActive)
         {
             PerformDrinkWine();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.T) && !_isChatInputActive)
+        {
+            PerformHeavenlyPassAction();
         }
 
         // 实时同步自身血量与地图至组队列表
@@ -700,6 +708,7 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.Teleport);
         }
         WineManager.Instance.Update(dt);
+        HeavenlyPassManager.Instance.Update(dt);
 
         // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
         if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
@@ -1915,6 +1924,9 @@ public class GameScene : IScene
         // 2.9 盟重酒馆泉水酿酒与药力醉酒度 HUD 标牌
         RenderWineBadge(boardX, boardY);
 
+        // 2.10 天雷天关试炼与王者神殿副本 HUD 标牌
+        RenderHeavenlyPassBadge(boardX, boardY);
+
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
 
@@ -3095,6 +3107,74 @@ public class GameScene : IScene
                 {
                     string buffInfo = mgr.HasActiveBuff ? $"增益中({mgr.CurrentBuff!.Name} 余{mgr.CurrentBuff.Duration:F0}s)" : "无醉酒增益";
                     _chatLogs.Add($"[盟重酒馆] 醉酒度: {(int)mgr.CurrentDrunkenness}/{(int)mgr.AlcoholTolerance} | 药力值: {mgr.WinePotency} (境界: {mgr.PotencyLevel}重) | 天泉水: {mgr.SpringWaterJars}坛 | 状态: {buffInfo}");
+                }
+                break;
+            }
+
+            case ParsedCommandType.Pass:
+            {
+                var mgr = HeavenlyPassManager.Instance;
+                if (cmd.SubAction == "buy")
+                {
+                    int buyCount = cmd.Amount > 0 ? cmd.Amount : 1;
+                    var (s, bMsg, _) = mgr.ExchangeTalismans(ref _gold, buyCount);
+                    _chatLogs.Add(bMsg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                }
+                else if (cmd.SubAction == "enter")
+                {
+                    var (s, eMsg) = mgr.EnterTrial();
+                    _chatLogs.Add(eMsg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.Teleport);
+                }
+                else if (cmd.SubAction == "defeat")
+                {
+                    var (s, dMsg) = mgr.DefeatCurrentGuard();
+                    _chatLogs.Add(dMsg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.MonsterDie);
+                }
+                else if (cmd.SubAction == "chest")
+                {
+                    PassChestType cType = cmd.TargetName.Equals("gold", StringComparison.OrdinalIgnoreCase) || cmd.TargetName == "金" 
+                        ? PassChestType.Gold 
+                        : PassChestType.Silver;
+                    var (s, r) = mgr.OpenChest(cType);
+                    if (s && r != null)
+                    {
+                        _chatLogs.Add(r.Message);
+                        bool lvlUp = _progression.AddExp(r.ExpAwarded, out _);
+                        if (lvlUp)
+                        {
+                            _hp = MaxHp;
+                            _mp = MaxMp;
+                            _skillFx.SpawnLevelUp(_playerTilePos);
+                        }
+                        _gold += r.GoldCoins;
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                    else
+                    {
+                        _chatLogs.Add(r?.Message ?? "开启天关宝箱失败！");
+                    }
+                }
+                else if (cmd.SubAction == "next")
+                {
+                    var (s, nMsg, isCrown) = mgr.NextFloor();
+                    _chatLogs.Add(nMsg);
+                    if (s) SoundManager.Instance.Play(isCrown ? SoundEffectType.LevelUp : SoundEffectType.Teleport);
+                }
+                else if (cmd.SubAction == "exit")
+                {
+                    var (s, xMsg) = mgr.ExitTrial();
+                    _chatLogs.Add(xMsg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.Teleport);
+                }
+                else
+                {
+                    string status = mgr.IsActive 
+                        ? $"第 {mgr.CurrentFloor} 层 (守卫: {(mgr.IsGuardDefeated ? "已斩杀" : "存活")}, 宝箱: {(mgr.HasOpenedChest ? "已开" : "未开")})" 
+                        : "安全区休整中";
+                    _chatLogs.Add($"[天雷天关] 状态: {status} | 灵符: {mgr.Talismans}张 | 累计通关层: {mgr.TotalClearedFloors} | 金刚石: {mgr.TotalDiamondsEarned}颗 | 王者神殿加冕: {mgr.KingsHallClears}次");
                 }
                 break;
             }
@@ -6082,6 +6162,134 @@ public class GameScene : IScene
                 var (s, bMsg) = mgr.BrewWine(toBrew);
                 _chatLogs.Add(bMsg);
                 if (s) SoundManager.Instance.Play(SoundEffectType.UsePotion);
+            }
+        }
+    }
+
+    private void PerformHeavenlyPassAction()
+    {
+        var mgr = HeavenlyPassManager.Instance;
+        if (!mgr.IsActive)
+        {
+            var (s, eMsg) = mgr.EnterTrial();
+            _chatLogs.Add(eMsg);
+            if (s)
+            {
+                SoundManager.Instance.Play(SoundEffectType.Teleport);
+            }
+            else if (_gold >= 150000)
+            {
+                mgr.ExchangeTalismans(ref _gold, 3);
+                var (sRetry, rMsg) = mgr.EnterTrial();
+                _chatLogs.Add(rMsg);
+                if (sRetry) SoundManager.Instance.Play(SoundEffectType.Teleport);
+            }
+        }
+        else if (!mgr.IsGuardDefeated)
+        {
+            var (s, dMsg) = mgr.DefeatCurrentGuard();
+            _chatLogs.Add(dMsg);
+            if (s) SoundManager.Instance.Play(SoundEffectType.MonsterDie);
+        }
+        else if (!mgr.HasOpenedChest)
+        {
+            PassChestType cType = mgr.Talismans >= 2 ? PassChestType.Gold : PassChestType.Silver;
+            var (s, reward) = mgr.OpenChest(cType);
+            if (s && reward != null)
+            {
+                _chatLogs.Add(reward.Message);
+                bool lvlUp = _progression.AddExp(reward.ExpAwarded, out _);
+                if (lvlUp)
+                {
+                    _hp = MaxHp;
+                    _mp = MaxMp;
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                }
+                _gold += reward.GoldCoins;
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+            else
+            {
+                _chatLogs.Add(reward?.Message ?? "开启天关宝箱失败！");
+            }
+        }
+        else
+        {
+            var (s, nMsg, isCrown) = mgr.NextFloor();
+            _chatLogs.Add(nMsg);
+            if (s) SoundManager.Instance.Play(isCrown ? SoundEffectType.LevelUp : SoundEffectType.Teleport);
+        }
+    }
+
+    private void RenderHeavenlyPassBadge(int boardX, int boardY)
+    {
+        var mgr = HeavenlyPassManager.Instance;
+        int badgeX = boardX + 440;
+        int badgeY = boardY - 30;
+        int badgeW = 104;
+        int badgeH = 24;
+
+        Rectangle badgeRec = new(badgeX, badgeY, badgeW, badgeH);
+        Raylib.DrawRectangleRec(badgeRec, new Color((byte)20, (byte)24, (byte)36, (byte)220));
+
+        Color borderCol;
+        if (mgr.IsActive)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            borderCol = mgr.CurrentFloor == HeavenlyPassManager.MaxFloors 
+                ? new Color((byte)255, (byte)215, (byte)0, (byte)(255 * pulse)) 
+                : new Color((byte)100, (byte)180, (byte)255, (byte)(255 * pulse));
+        }
+        else
+        {
+            borderCol = Color.DarkGray;
+        }
+        Raylib.DrawRectangleLines(badgeX, badgeY, badgeW, badgeH, borderCol);
+
+        if (mgr.IsActive)
+        {
+            string fTitle = mgr.CurrentFloor == HeavenlyPassManager.MaxFloors ? "王者殿" : $"{mgr.CurrentFloor}层";
+            FontManager.DrawTextWithShadow($"[天关]{fTitle} 符:{mgr.Talismans}", badgeX + 4, badgeY + 2, 9, new Color((byte)120, (byte)200, (byte)255, (byte)255), Color.Black);
+
+            if (!mgr.IsGuardDefeated)
+            {
+                FontManager.DrawText("[T击斩守卫]", badgeX + 4, badgeY + 12, 9, Color.Orange);
+            }
+            else if (!mgr.HasOpenedChest)
+            {
+                FontManager.DrawText("[T开箱寻宝]", badgeX + 4, badgeY + 12, 9, Color.Gold);
+            }
+            else
+            {
+                FontManager.DrawText(mgr.CurrentFloor == HeavenlyPassManager.MaxFloors ? "[T王者加冕]" : "[T前往下层]", badgeX + 4, badgeY + 12, 9, Color.Lime);
+            }
+        }
+        else
+        {
+            FontManager.DrawTextWithShadow($"[天关试炼] 符:{mgr.Talismans}", badgeX + 4, badgeY + 2, 9, new Color((byte)180, (byte)200, (byte)220, (byte)255), Color.Black);
+            FontManager.DrawText($"顶:{mgr.KingsHallClears}次 [T挑战]", badgeX + 4, badgeY + 12, 9, Color.LightGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        if (Raylib.CheckCollisionPointRec(mPos, badgeRec))
+        {
+            Raylib.DrawRectangleLinesEx(badgeRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                PerformHeavenlyPassAction();
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+            {
+                if (_gold >= HeavenlyPassManager.GoldPerTalisman)
+                {
+                    var (s, msg, _) = mgr.ExchangeTalismans(ref _gold, 1);
+                    _chatLogs.Add(msg);
+                    if (s) SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                }
+                else
+                {
+                    _chatLogs.Add("[天关守卫] 金币不足50,000，无法兑换天关灵符！");
+                }
             }
         }
     }
