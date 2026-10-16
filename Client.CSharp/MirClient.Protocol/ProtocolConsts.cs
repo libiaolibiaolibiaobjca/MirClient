@@ -57,6 +57,11 @@ public static class ProtocolConsts
     public const ushort CM_MASTER_RESPONSE = 1054; // 回应拜师/收徒申请 (Recog: 1=同意, 0=拒绝, Payload: 申请人名字)
     public const ushort CM_MASTER_EXPEL  = 1055; // 逐出师门或脱离师门 (Recog: 1=逐出徒弟, 2=脱离师门, Payload: 目标名字)
     public const ushort CM_MASTER_GRADUATE = 1056; // 举行出师典礼 (Recog: 1=师父主持, 2=弟子自出师, Payload: 弟子名字)
+    public const ushort CM_SENDSELL      = 9050; // 上架寄售货架商品 (Param: MakeIndex, Tag: 售价, Payload: 物品名)
+    public const ushort CM_MYSHOPEXIT    = 9053; // 收摊退出个人商店
+    public const ushort CM_MYSHOPHAM     = 9055; // 开启摆摊个人商店 (Payload: 摊位招牌文字)
+    public const ushort CM_HAMSHOPBUY    = 9057; // 购买他人摊位商品 (Recog: 摊主Id, Param: MakeIndex, Tag: 价格)
+    public const ushort CM_OPHAMSHOP     = 9061; // 查阅他人摊位商品货架 (Recog: 摊主Id, Payload: 摊主名字)
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -166,5 +171,12 @@ public static class ProtocolConsts
     public const ushort SM_MASTER_RESULT        = 778;  // 师徒结拜/脱离结果反馈 (Recog: 状态码 1~4, Payload: 提示信息)
     public const ushort SM_MASTER_LIST          = 779;  // 下发师门信息与弟子列表 (Recog: 声望值, Payload: 师门与门徒名册)
     public const ushort SM_APPRENTICE_LEVELUP   = 780;  // 门下弟子升级广播 (Recog: 弟子新等级, Param: 师父声望奖励, Payload: 弟子名)
+    public const ushort SM_SENDSELL             = 9051; // 商品上架成功通知 (Recog: 槽位, Param: MakeIndex, Tag: 售价, Payload: 物品名)
+    public const ushort SM_MYSHOPEXIT           = 9054; // 收摊成功确认 (Payload: 结算提示信息)
+    public const ushort SM_MYSHOPHAM            = 9056; // 摆摊开启成功确认 (Payload: 摊位招牌文字)
+    public const ushort SM_HAMSHOPBUYA          = 9058; // 买家购得商品成功确认 (Recog: 扣除金币, Payload: 购得物品名)
+    public const ushort SM_HAMSHOPBUYB          = 9059; // 卖家商品售出到账通知 (Recog: 获得金币, Payload: 售出商品名/买家名)
+    public const ushort SM_HAMSHOPTYPE          = 9060; // 地表摊位招牌/状态广播 (Recog: 摊主ActorId, Payload: 招牌与坐标)
+    public const ushort SM_OPHAMSHOP            = 9062; // 下发他人摊位货架列表 (Payload: 货架商品名册)
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }

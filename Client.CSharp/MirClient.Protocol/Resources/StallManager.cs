@@ -43,6 +43,16 @@ public class StallManager
     private readonly List<StallItem> _shelves = new();
     public IReadOnlyList<StallItem> Shelves => _shelves;
 
+    public event Action<bool, string>? OnStallStateChanged;
+    public event Action? OnShelfUpdated;
+    public event Action<string, int, string>? OnItemSold;
+    public event Action<int, string, IReadOnlyList<RemoteStallShelfItem>>? OnOtherStallOpened;
+
+    private readonly List<RemoteStallShelfItem> _otherStallShelves = new();
+    public IReadOnlyList<RemoteStallShelfItem> OtherStallShelves => _otherStallShelves;
+    public int CurrentViewingStallOwnerId { get; private set; } = 0;
+    public string CurrentViewingStallOwnerName { get; private set; } = "";
+
     public StallManager() { }
 
     /// <summary>
@@ -273,4 +283,84 @@ public class StallManager
             _shelves[i].SlotIndex = i;
         }
     }
+
+    #region 服务端网络同步与广播
+
+    /// <summary>
+    /// 同步服务端开启摊位成功 (SM_MYSHOPHAM = 9056)
+    /// </summary>
+    public void SyncServerStartStall(string title)
+    {
+        IsStalling = true;
+        StallTitle = string.IsNullOrWhiteSpace(title) ? "【极品装备】特价大甩卖" : title.Trim();
+        OnStallStateChanged?.Invoke(true, StallTitle);
+    }
+
+    /// <summary>
+    /// 同步服务端收摊成功 (SM_MYSHOPEXIT = 9054)
+    /// </summary>
+    public void SyncServerStopStall(string message)
+    {
+        IsStalling = false;
+        _shelves.Clear();
+        OnStallStateChanged?.Invoke(false, message);
+        OnShelfUpdated?.Invoke();
+    }
+
+    /// <summary>
+    /// 同步服务端商品上架成功 (SM_SENDSELL = 9051)
+    /// </summary>
+    public void SyncServerAddItem(int slotIndex, int makeIndex, int price, string itemName)
+    {
+        var existing = _shelves.FirstOrDefault(s => s.SlotIndex == slotIndex || s.Item.Id == makeIndex);
+        if (existing != null)
+        {
+            existing.Price = price;
+        }
+        else
+        {
+            var item = new Item
+            {
+                Id = makeIndex,
+                Name = itemName,
+                Type = ItemType.Weapon
+            };
+            _shelves.Add(new StallItem(slotIndex, item, price));
+        }
+        ReindexShelves();
+        OnShelfUpdated?.Invoke();
+    }
+
+    /// <summary>
+    /// 同步服务端商品售出结算 (SM_HAMSHOPBUYB = 9059)
+    /// </summary>
+    public void SyncServerSoldNotification(string itemName, int earnGold, string buyerName)
+    {
+        TotalEarnings += earnGold;
+        var soldItem = _shelves.FirstOrDefault(s => s.Item.Name.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+        if (soldItem != null)
+        {
+            _shelves.Remove(soldItem);
+            ReindexShelves();
+            OnShelfUpdated?.Invoke();
+        }
+        OnItemSold?.Invoke(itemName, earnGold, buyerName);
+    }
+
+    /// <summary>
+    /// 同步服务端下发他人摊位货架列表 (SM_OPHAMSHOP = 9062)
+    /// </summary>
+    public void SyncServerOtherStall(int ownerId, string ownerName, IEnumerable<RemoteStallShelfItem> shelves)
+    {
+        CurrentViewingStallOwnerId = ownerId;
+        CurrentViewingStallOwnerName = ownerName;
+        _otherStallShelves.Clear();
+        if (shelves != null)
+        {
+            _otherStallShelves.AddRange(shelves);
+        }
+        OnOtherStallOpened?.Invoke(ownerId, ownerName, _otherStallShelves);
+    }
+
+    #endregion
 }

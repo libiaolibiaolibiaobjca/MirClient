@@ -89,6 +89,13 @@ public class NetworkSession : IDisposable
     public event Action<bool, int, string>? OnMasterResult;
     public event Action<MasterSyncRecord>? OnMasterListReceived;
     public event Action<string, int, int>? OnApprenticeLeveledUp;
+    public event Action<string>? OnStallStarted;
+    public event Action<string>? OnStallStopped;
+    public event Action<int, int, int, string>? OnStallItemAdded;
+    public event Action<int, string>? OnStallBuyerSuccess;
+    public event Action<int, string, string>? OnStallSellerSold;
+    public event Action<StallSignboardRecord>? OnStallSignboardChanged;
+    public event Action<IReadOnlyList<RemoteStallShelfItem>>? OnOtherStallShelvesReceived;
 
     public NetworkSession()
     {
@@ -857,6 +864,80 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 开启个人摊位成功确认 (SM_MYSHOPHAM = 9056)
+                case ProtocolConsts.SM_MYSHOPHAM:
+                {
+                    string title = StallProtocolManager.ParseStartStallResponse(e.Header, e.Payload);
+                    StallManager.Instance.SyncServerStartStall(title);
+                    Log($"[摆摊系统] 您的地摊【{title}】已顺利在集市支起营业！");
+                    OnStallStarted?.Invoke(title);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 收摊歇业成功确认 (SM_MYSHOPEXIT = 9054)
+                case ProtocolConsts.SM_MYSHOPEXIT:
+                {
+                    string msg = StallProtocolManager.ParseStopStallResponse(e.Header, e.Payload);
+                    StallManager.Instance.SyncServerStopStall(msg);
+                    Log($"[摆摊系统] {msg}");
+                    OnStallStopped?.Invoke(msg);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 商品上架成功通知 (SM_SENDSELL = 9051)
+                case ProtocolConsts.SM_SENDSELL:
+                {
+                    var (slot, makeIndex, price, itemName) = StallProtocolManager.ParseAddItemResponse(e.Header, e.Payload);
+                    StallManager.Instance.SyncServerAddItem(slot, makeIndex, price, itemName);
+                    Log($"[摆摊系统] 商品【{itemName}】已上架至第 {slot + 1} 号货架，标价 {price} 金币");
+                    OnStallItemAdded?.Invoke(slot, makeIndex, price, itemName);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 买家购买成功确认 (SM_HAMSHOPBUYA = 9058)
+                case ProtocolConsts.SM_HAMSHOPBUYA:
+                {
+                    var (cost, name) = StallProtocolManager.ParseBuyerSuccess(e.Header, e.Payload);
+                    Log($"[市集交易] 选购成功！您花费 {cost} 金币购得【{name}】");
+                    OnStallBuyerSuccess?.Invoke(cost, name);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 卖家商品售出结算通知 (SM_HAMSHOPBUYB = 9059)
+                case ProtocolConsts.SM_HAMSHOPBUYB:
+                {
+                    var (earn, name, buyer) = StallProtocolManager.ParseSellerSold(e.Header, e.Payload);
+                    StallManager.Instance.SyncServerSoldNotification(name, earn, buyer);
+                    Log($"[摊位捷报] 买家【{buyer}】购买了您的【{name}】，金币结算 +{earn} 入账！");
+                    OnStallSellerSold?.Invoke(earn, name, buyer);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 地表摊位招牌广播 (SM_HAMSHOPTYPE = 9060)
+                case ProtocolConsts.SM_HAMSHOPTYPE:
+                {
+                    var record = StallProtocolManager.ParseStallType(e.Header, e.Payload);
+                    OnStallSignboardChanged?.Invoke(record);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 下发他人摊位货架列表 (SM_OPHAMSHOP = 9062)
+                case ProtocolConsts.SM_OPHAMSHOP:
+                {
+                    var list = StallProtocolManager.ParseOtherStallShelves(e.Payload);
+                    StallManager.Instance.SyncServerOtherStall(e.Header.Recog, "", list);
+                    Log($"[市集查阅] 已同步摊位货架，在售商品共 {list.Count} 件");
+                    OnOtherStallShelvesReceived?.Invoke(list);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -1195,6 +1276,51 @@ public class NetworkSession : IDisposable
     public async Task SendMasterGraduateAsync(bool isSelf, string apprenticeName)
     {
         var (header, payload) = SocialProtocolManager.CreateMasterGraduatePacket(isSelf, apprenticeName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送开启摆摊个人商店请求 (CM_MYSHOPHAM = 9055)
+    /// </summary>
+    public async Task SendStartStallAsync(string title)
+    {
+        var (header, payload) = StallProtocolManager.CreateStartStallPacket(title);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送收摊歇业请求 (CM_MYSHOPEXIT = 9053)
+    /// </summary>
+    public async Task SendStopStallAsync()
+    {
+        var (header, payload) = StallProtocolManager.CreateStopStallPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送上架货架商品请求 (CM_SENDSELL = 9050)
+    /// </summary>
+    public async Task SendAddStallItemAsync(int makeIndex, int price, string itemName)
+    {
+        var (header, payload) = StallProtocolManager.CreateAddItemPacket(makeIndex, price, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送购买他人摊位商品请求 (CM_HAMSHOPBUY = 9057)
+    /// </summary>
+    public async Task SendBuyStallItemAsync(int ownerActorId, int makeIndex, int price)
+    {
+        var (header, payload) = StallProtocolManager.CreateBuyItemPacket(ownerActorId, makeIndex, price);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送查阅他人摊位商品货架请求 (CM_OPHAMSHOP = 9061)
+    /// </summary>
+    public async Task SendOpenOtherStallAsync(int ownerActorId, string ownerName)
+    {
+        var (header, payload) = StallProtocolManager.CreateOpenOtherStallPacket(ownerActorId, ownerName);
         await SendGamePacketAsync(header, payload);
     }
 

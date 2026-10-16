@@ -370,6 +370,36 @@ public class GameScene : IScene
             _chatLogs.Add($"【师门喜讯】门下弟子【{appName}】武艺精进升至 {newLvl} 级！师父荣获声望奖励 {repGain} 点！");
             SoundManager.Instance.Play(SoundEffectType.LevelUp);
         };
+        _engine.NetworkSession.OnStallStarted += title =>
+        {
+            _chatLogs.Add($"[集市摆摊] 摊位【{title}】已顺利在主城集市开张营业！");
+            _showStallWindow = true;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnStallStopped += msg =>
+        {
+            _chatLogs.Add($"[集市摆摊] {msg}");
+        };
+        _engine.NetworkSession.OnStallItemAdded += (slot, makeIndex, price, itemName) =>
+        {
+            _chatLogs.Add($"[集市摆摊] 【{itemName}】已上架至第 {slot + 1} 号货架 (标价: {price} 金币)。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnStallBuyerSuccess += (cost, itemName) =>
+        {
+            _chatLogs.Add($"[市集选购] 成功购得【{itemName}】，支付 {cost} 金币！");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnStallSellerSold += (earn, itemName, buyer) =>
+        {
+            _chatLogs.Add($"★★【摊位成交】买家【{buyer}】选购了您的【{itemName}】，获得金币 +{earn}！★★");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
+        _engine.NetworkSession.OnOtherStallShelvesReceived += list =>
+        {
+            _chatLogs.Add($"[市集查阅] 已打开摊位货架，在售商品共 {list.Count} 件。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
     }
 
     public void Init()
@@ -2972,73 +3002,107 @@ public class GameScene : IScene
             case ParsedCommandType.Stall:
                 if (cmd.SubAction == "on")
                 {
-                    string mapId = MapManager.Instance.ActiveMap.Id;
-                    if (StallManager.Instance.StartStall(cmd.TargetName, _playerName, mapId, _playerTilePos, out string startMsg))
+                    if (_engine.NetworkSession.IsConnected)
                     {
-                        _chatLogs.Add($"[集市摆摊] {startMsg}");
-                        _showStallWindow = true;
-                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        _ = _engine.NetworkSession.SendStartStallAsync(cmd.TargetName);
+                        _chatLogs.Add($"[集市摆摊] 正在向集市申请支起地摊【{cmd.TargetName}】...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[集市摆摊] 摆摊失败: {startMsg}");
+                        string mapId = MapManager.Instance.ActiveMap.Id;
+                        if (StallManager.Instance.StartStall(cmd.TargetName, _playerName, mapId, _playerTilePos, out string startMsg))
+                        {
+                            _chatLogs.Add($"[集市摆摊] {startMsg}");
+                            _showStallWindow = true;
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[集市摆摊] 摆摊失败: {startMsg}");
+                        }
                     }
                 }
                 else if (cmd.SubAction == "off")
                 {
-                    if (StallManager.Instance.StopStall(_inv, out string stopMsg))
+                    if (_engine.NetworkSession.IsConnected)
                     {
-                        _chatLogs.Add($"[集市摆摊] {stopMsg}");
-                        SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        _ = _engine.NetworkSession.SendStopStallAsync();
+                        _chatLogs.Add("[集市摆摊] 正在向集市提交收摊申请...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[集市摆摊] 收摊失败: {stopMsg}");
+                        if (StallManager.Instance.StopStall(_inv, out string stopMsg))
+                        {
+                            _chatLogs.Add($"[集市摆摊] {stopMsg}");
+                            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[集市摆摊] 收摊失败: {stopMsg}");
+                        }
                     }
                 }
                 else if (cmd.SubAction == "add")
                 {
                     int targetSlot = -1;
+                    Item? foundItem = null;
                     for (int i = 0; i < InventoryManager.BAG_CAPACITY; i++)
                     {
                         var it = _inv.GetItem(i);
                         if (it != null && (it.Name == cmd.TargetName || it.Name.Contains(cmd.TargetName)))
                         {
                             targetSlot = i;
+                            foundItem = it;
                             break;
                         }
                     }
 
-                    if (targetSlot < 0)
+                    if (targetSlot < 0 || foundItem == null)
                     {
                         _chatLogs.Add($"[集市摆摊] 背包中未找到物品【{cmd.TargetName}】！");
                     }
                     else
                     {
-                        if (StallManager.Instance.AddItemToShelf(_inv, targetSlot, cmd.Amount, out string addMsg))
+                        if (_engine.NetworkSession.IsConnected)
                         {
-                            _chatLogs.Add($"[集市摆摊] {addMsg}");
-                            SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                            _ = _engine.NetworkSession.SendAddStallItemAsync(foundItem.Id, cmd.Amount, foundItem.Name);
+                            _chatLogs.Add($"[集市摆摊] 正在将【{foundItem.Name}】上架至集市货架 (标价: {cmd.Amount} 金币)...");
                         }
                         else
                         {
-                            _chatLogs.Add($"[集市摆摊] 上架失败: {addMsg}");
+                            if (StallManager.Instance.AddItemToShelf(_inv, targetSlot, cmd.Amount, out string addMsg))
+                            {
+                                _chatLogs.Add($"[集市摆摊] {addMsg}");
+                                SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                            }
+                            else
+                            {
+                                _chatLogs.Add($"[集市摆摊] 上架失败: {addMsg}");
+                            }
                         }
                     }
                 }
                 else if (cmd.SubAction == "buy")
                 {
-                    InventoryManager buyerInv = new();
-                    int dummyGold = 200000;
-                    if (StallManager.Instance.BuyItem(buyerInv, ref dummyGold, cmd.Amount, out string buyMsg))
+                    if (_engine.NetworkSession.IsConnected)
                     {
-                        _gold += StallManager.Instance.TotalEarnings > 0 ? 0 : 0;
-                        _chatLogs.Add($"[集市买卖] {buyMsg}");
-                        SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                        _ = _engine.NetworkSession.SendBuyStallItemAsync(0, cmd.Amount, 0);
+                        _chatLogs.Add($"[集市买卖] 已向卖家提交购入第 {cmd.Amount} 号商品请求...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[集市买卖] 购买失败: {buyMsg}");
+                        InventoryManager buyerInv = new();
+                        int dummyGold = 200000;
+                        if (StallManager.Instance.BuyItem(buyerInv, ref dummyGold, cmd.Amount, out string buyMsg))
+                        {
+                            _gold += StallManager.Instance.TotalEarnings > 0 ? 0 : 0;
+                            _chatLogs.Add($"[集市买卖] {buyMsg}");
+                            SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[集市买卖] 购买失败: {buyMsg}");
+                        }
                     }
                 }
                 else if (cmd.SubAction == "shout")
