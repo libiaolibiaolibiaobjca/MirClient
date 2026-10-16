@@ -62,6 +62,14 @@ public class NetworkSession : IDisposable
     public event Action<bool>? OnGroupModeChanged;
     public event Action? OnGroupCancel;
     public event Action<GroupActionResult>? OnGroupActionResult;
+    public event Action<string>? OnDealMenu;
+    public event Action<int, string>? OnDealRemoteAddItem;
+    public event Action<int>? OnDealRemoteDelItem;
+    public event Action<int>? OnDealRemoteChgGold;
+    public event Action<int>? OnDealLocalChgGold;
+    public event Action? OnDealSuccess;
+    public event Action? OnDealCancel;
+    public event Action<string>? OnDealActionResult;
 
     public NetworkSession()
     {
@@ -487,6 +495,126 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 打开双人交易双栏视窗 (SM_DEALMENU = 673)
+                case ProtocolConsts.SM_DEALMENU:
+                {
+                    string targetName = DealProtocolManager.ParseDealMenu(e.Header, e.Payload);
+                    DealManager.Instance.StartDeal(targetName);
+                    Log($"[交易] 与【{targetName}】的面对面安全交易窗口已开启");
+                    OnDealMenu?.Invoke(targetName);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 发起交易失败 (SM_DEALTRY_FAIL = 674)
+                case ProtocolConsts.SM_DEALTRY_FAIL:
+                {
+                    Log("[交易] 交易发起失败 (目标距离过远、正忙或未开启交易模式)");
+                    OnDealActionResult?.Invoke("交易发起失败 (目标距离过远、正忙或未开启交易模式)");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 本地放入物品成功/失败
+                case ProtocolConsts.SM_DEALADDITEM_OK:
+                {
+                    Log("[交易] 本地放入交易物品成功");
+                    OnDealActionResult?.Invoke("交易物品放入成功！");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+                case ProtocolConsts.SM_DEALADDITEM_FAIL:
+                {
+                    Log("[交易] 本地放入交易物品失败");
+                    OnDealActionResult?.Invoke("放入交易物品失败 (可能已锁定或背包数据异常)");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 本地撤回物品成功/失败
+                case ProtocolConsts.SM_DEALDELITEM_OK:
+                {
+                    Log("[交易] 撤回交易物品成功");
+                    OnDealActionResult?.Invoke("交易物品已撤回。");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+                case ProtocolConsts.SM_DEALDELITEM_FAIL:
+                {
+                    Log("[交易] 撤回交易物品失败");
+                    OnDealActionResult?.Invoke("撤回交易物品失败！");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 对方放入/撤回物品同步
+                case ProtocolConsts.SM_DEALREMOTEADDITEM:
+                {
+                    int makeIndex = e.Header.Param | (e.Header.Tag << 16);
+                    string itemName = EDCode.DecodeText(e.Payload ?? string.Empty);
+                    DealManager.Instance.AddRemoteItem(makeIndex, itemName);
+                    Log($"[交易] 对方放入了物品: 【{itemName}】");
+                    OnDealRemoteAddItem?.Invoke(makeIndex, itemName);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+                case ProtocolConsts.SM_DEALREMOTEDELITEM:
+                {
+                    int makeIndex = e.Header.Param | (e.Header.Tag << 16);
+                    DealManager.Instance.RemoveRemoteItem(makeIndex);
+                    Log($"[交易] 对方撤回了交易物品 (Index: {makeIndex})");
+                    OnDealRemoteDelItem?.Invoke(makeIndex);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 金币调整同步
+                case ProtocolConsts.SM_DEALCHGGOLD_OK:
+                {
+                    int localGold = DealProtocolManager.ParseDealGold(e.Header);
+                    DealManager.Instance.SetLocalGold(localGold);
+                    Log($"[交易] 本地交易金币调整为: {localGold:N0}");
+                    OnDealLocalChgGold?.Invoke(localGold);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+                case ProtocolConsts.SM_DEALCHGGOLD_FAIL:
+                {
+                    Log("[交易] 调整交易金币失败");
+                    OnDealActionResult?.Invoke("调整交易金币失败 (金币不足或已锁定)");
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+                case ProtocolConsts.SM_DEALREMOTECHGGOLD:
+                {
+                    int remoteGold = DealProtocolManager.ParseDealGold(e.Header);
+                    DealManager.Instance.SetRemoteGold(remoteGold);
+                    Log($"[交易] 对方投入了交易金币: {remoteGold:N0}");
+                    OnDealRemoteChgGold?.Invoke(remoteGold);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 交易圆满成交 (SM_DEALSUCCESS = 687)
+                case ProtocolConsts.SM_DEALSUCCESS:
+                {
+                    DealManager.Instance.CompleteDeal();
+                    Log("[交易] 双方确认锁定，交易圆满达成！");
+                    OnDealSuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 交易取消中止 (SM_DEALCANCEL = 681)
+                case ProtocolConsts.SM_DEALCANCEL:
+                {
+                    DealManager.Instance.CancelDeal();
+                    Log("[交易] 交易已取消中止，物品与金币已安全退回");
+                    OnDealCancel?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -618,6 +746,60 @@ public class NetworkSession : IDisposable
     public async Task SendDelGroupMemberAsync(string targetName)
     {
         var (header, payload) = GroupProtocolManager.CreateDelMemberPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发起面对面交易请求 (CM_DEALTRY = 1025)
+    /// </summary>
+    public async Task SendDealTryAsync(string targetName)
+    {
+        var (header, payload) = DealProtocolManager.CreateDealTryPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 放入交易物品 (CM_DEALADDITEM = 1026)
+    /// </summary>
+    public async Task SendDealAddItemAsync(int makeIndex, string itemName)
+    {
+        var (header, payload) = DealProtocolManager.CreateDealAddItemPacket(makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 撤回交易物品 (CM_DEALDELITEM = 1027)
+    /// </summary>
+    public async Task SendDealDelItemAsync(int makeIndex, string itemName)
+    {
+        var (header, payload) = DealProtocolManager.CreateDealDelItemPacket(makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 调整交易金币数 (CM_DEALCHGGOLD = 1029)
+    /// </summary>
+    public async Task SendDealChgGoldAsync(int gold)
+    {
+        var (header, payload) = DealProtocolManager.CreateDealChgGoldPacket(gold);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 锁定交易并确认成交 (CM_DEALEND = 1030)
+    /// </summary>
+    public async Task SendDealEndAsync()
+    {
+        var (header, payload) = DealProtocolManager.CreateDealEndPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 取消交易中止窗口 (CM_DEALCANCEL = 1028)
+    /// </summary>
+    public async Task SendDealCancelAsync()
+    {
+        var (header, payload) = DealProtocolManager.CreateDealCancelPacket();
         await SendGamePacketAsync(header, payload);
     }
 

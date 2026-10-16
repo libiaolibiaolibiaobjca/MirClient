@@ -33,6 +33,12 @@ public static class ProtocolConsts
     public const ushort CM_CREATEGROUP   = 1020; // 创建队伍并邀请首位成员
     public const ushort CM_ADDGROUPMEMBER= 1021; // 邀请添加队伍成员
     public const ushort CM_DELGROUPMEMBER= 1022; // 移出队员或主动退队
+    public const ushort CM_DEALTRY       = 1025; // 玩家发起面对面交易
+    public const ushort CM_DEALADDITEM   = 1026; // 放入交易物品 (Param: MakeIndex)
+    public const ushort CM_DEALDELITEM   = 1027; // 撤回交易物品 (Param: MakeIndex)
+    public const ushort CM_DEALCANCEL    = 1028; // 取消交易
+    public const ushort CM_DEALCHGGOLD   = 1029; // 调整交易金币数 (Param: 金币数)
+    public const ushort CM_DEALEND       = 1030; // 锁定交易并确认成交
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -101,5 +107,18 @@ public static class ProtocolConsts
     public const ushort SM_GROUPDELMEM_FAIL     = 665;  // 删除队伍成员失败
     public const ushort SM_GROUPCANCEL          = 666;  // 队伍解散
     public const ushort SM_GROUPMEMBERS         = 667;  // 队伍全员名单同步 (Payload: Name1/Name2/.../)
+    public const ushort SM_DEALMENU             = 673;  // 打开交易双栏视窗 (Payload: 对方角色名)
+    public const ushort SM_DEALTRY_FAIL         = 674;  // 发起交易失败 (距离太远/对方正忙/未开启交易)
+    public const ushort SM_DEALADDITEM_OK       = 675;  // 本地放入物品成功
+    public const ushort SM_DEALADDITEM_FAIL     = 676;  // 本地放入物品失败
+    public const ushort SM_DEALDELITEM_OK       = 677;  // 本地撤回物品成功
+    public const ushort SM_DEALDELITEM_FAIL     = 678;  // 本地撤回物品失败
+    public const ushort SM_DEALCANCEL           = 681;  // 交易取消中断 (物品原样返还)
+    public const ushort SM_DEALREMOTEADDITEM    = 682;  // 对方放入物品同步
+    public const ushort SM_DEALREMOTEDELITEM    = 683;  // 对方撤回物品同步
+    public const ushort SM_DEALCHGGOLD_OK       = 684;  // 本地金币调整成功 (Recog: 交易金币数)
+    public const ushort SM_DEALCHGGOLD_FAIL     = 685;  // 本地金币调整失败
+    public const ushort SM_DEALREMOTECHGGOLD    = 686;  // 对方金币调整同步 (Recog: 对方金币数)
+    public const ushort SM_DEALSUCCESS          = 687;  // 交易锁定并成交
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }

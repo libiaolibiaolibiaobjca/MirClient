@@ -21,6 +21,7 @@ public enum ParsedCommandType
     Kill,       // @kill 角色阵亡自尽测试
     Revive,     // @revive 原地神圣复活
     Group,      // @group 组队管理与模拟队员
+    Deal,       // @deal 面对面交易管理 (发起/加金币/锁定/取消)
     Guild,      // @guild 行会与称号管理
     Stall,      // @stall 摆摊与市场集市
     Siege,      // @siege 沙巴克攻城战与皇宫争夺
@@ -554,6 +555,72 @@ public static class CommandParser
                     RawInput = input,
                     Message = $"未知组队子指令【{parts[1]}】！可选: add, kick, leave, allow"
                 };
+            }
+
+            case "deal":
+            case "trade":
+            case "交易":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Deal,
+                        RawInput = input,
+                        SubAction = "try",
+                        TargetName = "昔日法神",
+                        Message = "发起面对面交易。"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                if (sub == "cancel" || sub == "取消" || sub == "关闭")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Deal,
+                        RawInput = input,
+                        SubAction = "cancel",
+                        Message = "取消交易视窗。"
+                    };
+                }
+                else if (sub == "ok" || sub == "lock" || sub == "锁定" || sub == "成交")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Deal,
+                        RawInput = input,
+                        SubAction = "ok",
+                        Message = "确认锁定交易并同意成交。"
+                    };
+                }
+                else if (sub == "gold" || sub == "金币")
+                {
+                    int gold = 10000;
+                    if (parts.Length >= 3 && int.TryParse(parts[2], out int pGold))
+                    {
+                        gold = Math.Max(0, pGold);
+                    }
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Deal,
+                        RawInput = input,
+                        SubAction = "gold",
+                        Amount = gold,
+                        Message = $"调整交易金币为: {gold:N0}"
+                    };
+                }
+                else
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Deal,
+                        RawInput = input,
+                        SubAction = "try",
+                        TargetName = parts[1],
+                        Message = $"向【{parts[1]}】发起面对面安全交易请求。"
+                    };
+                }
             }
 
             case "guild":

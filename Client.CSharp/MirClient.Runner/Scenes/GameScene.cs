@@ -227,6 +227,40 @@ public class GameScene : IScene
         {
             _chatLogs.Add($"[组队] {result.Message}");
         };
+        _engine.NetworkSession.OnDealMenu += targetName =>
+        {
+            _chatLogs.Add($"[安全交易] 与【{targetName}】的交易视窗已激活，请放入物品或金币并锁定。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnDealRemoteAddItem += (makeIndex, itemName) =>
+        {
+            _chatLogs.Add($"[交易同步] 对方放入了物品: 【{itemName}】");
+            SoundManager.Instance.Play(SoundEffectType.PickupItem);
+        };
+        _engine.NetworkSession.OnDealRemoteDelItem += makeIndex =>
+        {
+            _chatLogs.Add("[交易同步] 对方撤回了一件交易物品。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnDealRemoteChgGold += gold =>
+        {
+            _chatLogs.Add($"[交易同步] 对方调整了交易金币为: {gold:N0} 金币");
+            SoundManager.Instance.Play(SoundEffectType.PickupGold);
+        };
+        _engine.NetworkSession.OnDealSuccess += () =>
+        {
+            _chatLogs.Add("[安全交易] 双方确认锁定，交易成功达成！物品与金币已入包。");
+            SoundManager.Instance.Play(SoundEffectType.PickupGold);
+        };
+        _engine.NetworkSession.OnDealCancel += () =>
+        {
+            _chatLogs.Add("[安全交易] 交易已中止取消，所有物品与金币原样返还。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnDealActionResult += msg =>
+        {
+            _chatLogs.Add($"[安全交易] {msg}");
+        };
     }
 
     public void Init()
@@ -2565,6 +2599,53 @@ public class GameScene : IScene
                         {
                             _chatLogs.Add($"[组队] 无法添加【{cmd.TargetName}】(可能已满员或已在队伍中)。");
                         }
+                    }
+                }
+                break;
+
+            case ParsedCommandType.Deal:
+                if (_engine.NetworkSession.Step == NetworkStep.InWorld)
+                {
+                    if (cmd.SubAction == "try")
+                    {
+                        _ = _engine.NetworkSession.SendDealTryAsync(cmd.TargetName);
+                    }
+                    else if (cmd.SubAction == "gold")
+                    {
+                        _ = _engine.NetworkSession.SendDealChgGoldAsync(cmd.Amount);
+                    }
+                    else if (cmd.SubAction == "ok")
+                    {
+                        DealManager.Instance.SetLocalLock(true);
+                        _ = _engine.NetworkSession.SendDealEndAsync();
+                    }
+                    else if (cmd.SubAction == "cancel")
+                    {
+                        _ = _engine.NetworkSession.SendDealCancelAsync();
+                    }
+                }
+                else
+                {
+                    if (cmd.SubAction == "try")
+                    {
+                        DealManager.Instance.StartDeal(cmd.TargetName);
+                        _chatLogs.Add($"[单机模拟] 已开启与【{cmd.TargetName}】的面对面安全交易！");
+                    }
+                    else if (cmd.SubAction == "gold")
+                    {
+                        DealManager.Instance.SetLocalGold(cmd.Amount);
+                        _chatLogs.Add($"[单机模拟] 本地交易金币调整为: {cmd.Amount:N0}");
+                    }
+                    else if (cmd.SubAction == "ok")
+                    {
+                        DealManager.Instance.SetLocalLock(true);
+                        DealManager.Instance.CompleteDeal();
+                        _chatLogs.Add("[单机模拟] 交易锁定成功，模拟成交达成！");
+                    }
+                    else if (cmd.SubAction == "cancel")
+                    {
+                        DealManager.Instance.CancelDeal();
+                        _chatLogs.Add("[单机模拟] 交易已取消中止。");
                     }
                 }
                 break;
