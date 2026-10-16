@@ -23,6 +23,7 @@ public enum ParsedCommandType
     Group,      // @group 组队管理与模拟队员
     Deal,       // @deal 面对面交易管理 (发起/加金币/锁定/取消)
     Guild,      // @guild 行会与称号管理
+    Storage,    // @storage 仓库与保管员存取管理
     Stall,      // @stall 摆摊与市场集市
     Siege,      // @siege 沙巴克攻城战与皇宫争夺
     Repair,     // @repair 装备修理与特修
@@ -770,6 +771,75 @@ public static class CommandParser
                     Type = ParsedCommandType.Unknown,
                     RawInput = input,
                     Message = $"未知行会子指令【{parts[1]}】！可选: create, add, rank, kick, leave, notice, open"
+                };
+            }
+
+            case "storage":
+            case "仓库":
+            case "保管":
+            {
+                if (parts.Length < 2)
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "open",
+                        RawInput = input,
+                        Message = "打开仓库保管视窗。"
+                    };
+                }
+
+                string sub = parts[1].ToLowerInvariant();
+                if (sub == "open" || sub == "打开" || sub == "view")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "open",
+                        RawInput = input,
+                        Message = "打开仓库保管视窗。"
+                    };
+                }
+                else if (sub == "save" || sub == "存" || sub == "存入")
+                {
+                    string itemName = parts.Length >= 3 ? parts[2] : "";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "save",
+                        TargetName = itemName,
+                        RawInput = input,
+                        Message = $"请求将【{itemName}】存入仓库。"
+                    };
+                }
+                else if (sub == "take" || sub == "取" || sub == "取出" || sub == "取回")
+                {
+                    string itemName = parts.Length >= 3 ? parts[2] : "";
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "take",
+                        TargetName = itemName,
+                        RawInput = input,
+                        Message = $"请求从仓库取回【{itemName}】。"
+                    };
+                }
+                else if (sub == "list" || sub == "查" || sub == "查询")
+                {
+                    return new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "list",
+                        RawInput = input,
+                        Message = "查看当前仓库保管的所有物品。"
+                    };
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Unknown,
+                    RawInput = input,
+                    Message = $"未知仓库子指令【{parts[1]}】！可选: open, save <物品名>, take <物品名>, list"
                 };
             }
 

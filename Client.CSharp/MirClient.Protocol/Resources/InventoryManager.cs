@@ -193,6 +193,8 @@ public class InventoryManager
 
     public Item? GetItem(int bagIndex) => (bagIndex >= 0 && bagIndex < BAG_CAPACITY) ? _bag[bagIndex] : null;
 
+    public bool IsFull => _bag.All(i => i != null);
+
     public bool RemoveItem(int bagIndex)
     {
         if (bagIndex < 0 || bagIndex >= BAG_CAPACITY || _bag[bagIndex] == null) return false;

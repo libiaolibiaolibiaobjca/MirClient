@@ -74,6 +74,9 @@ public class NetworkSession : IDisposable
     public event Action? OnOpenGuildDlgFail;
     public event Action<IReadOnlyList<GuildRankEntry>>? OnGuildMemberList;
     public event Action<GuildActionResult>? OnGuildActionResult;
+    public event Action<int>? OnOpenStorage;
+    public event Action<IReadOnlyList<StorageItemRecord>, int, int>? OnStorageItemList;
+    public event Action<StorageActionResult>? OnStorageActionResult;
 
     public NetworkSession()
     {
@@ -619,6 +622,51 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 打开仓库保管存入界面 (SM_SENDUSERSTORAGEITEM = 700)
+                case ProtocolConsts.SM_SENDUSERSTORAGEITEM:
+                {
+                    int merchantId = e.Header.Recog;
+                    StorageManager.Instance.IsOpen = true;
+                    StorageManager.Instance.CurrentMerchantId = merchantId;
+                    Log($"[仓库] 仓库保管员已开启保管通道 (NPC ID: {merchantId})");
+                    OnOpenStorage?.Invoke(merchantId);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 下发仓库物品名册 (SM_SAVEITEMLIST = 704)
+                case ProtocolConsts.SM_SAVEITEMLIST:
+                {
+                    int merchantId = e.Header.Recog;
+                    int curPage = e.Header.Param;
+                    int totalPages = e.Header.Tag + 1;
+                    var records = StorageProtocolManager.ParseStorageItemList(e.Payload);
+                    StorageManager.Instance.IsOpen = true;
+                    StorageManager.Instance.CurrentMerchantId = merchantId;
+                    StorageManager.Instance.PageIndex = curPage;
+                    StorageManager.Instance.TotalPages = totalPages;
+                    StorageManager.Instance.SyncStorageRecords(records);
+                    Log($"[仓库] 已同步仓库物品列表: 共 {records.Count} 件物品 (第 {curPage + 1}/{totalPages} 页)");
+                    OnStorageItemList?.Invoke(records, curPage, totalPages);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 仓库物品存入/取回结果 (701, 702, 703, 705, 706, 707)
+                case ProtocolConsts.SM_STORAGE_OK:
+                case ProtocolConsts.SM_STORAGE_FULL:
+                case ProtocolConsts.SM_STORAGE_FAIL:
+                case ProtocolConsts.SM_TAKEBACKSTORAGEITEM_OK:
+                case ProtocolConsts.SM_TAKEBACKSTORAGEITEM_FAIL:
+                case ProtocolConsts.SM_TAKEBACKSTORAGEITEM_FULLBAG:
+                {
+                    var result = StorageProtocolManager.ParseActionResult(e.Header);
+                    Log($"[仓库] {result.Message}");
+                    OnStorageActionResult?.Invoke(result);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 打开行会主视窗成功 (SM_OPENGUILDDLG = 753)
                 case ProtocolConsts.SM_OPENGUILDDLG:
                 {
@@ -902,6 +950,24 @@ public class NetworkSession : IDisposable
     public async Task SendGuildUpdateNoticeAsync(string notice)
     {
         var (header, payload) = GuildProtocolManager.CreateGuildUpdateNoticePacket(notice);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 请求存入物品至仓库 (CM_USERSTORAGEITEM = 1031)
+    /// </summary>
+    public async Task SendSaveStorageItemAsync(int merchantId, int makeIndex, string itemName)
+    {
+        var (header, payload) = StorageProtocolManager.CreateSaveStorageItemPacket(merchantId, makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 请求从仓库取回物品 (CM_USERTAKEBACKSTORAGEITEM = 1032)
+    /// </summary>
+    public async Task SendTakeBackStorageItemAsync(int merchantId, int makeIndex, string itemName)
+    {
+        var (header, payload) = StorageProtocolManager.CreateTakeBackStorageItemPacket(merchantId, makeIndex, itemName);
         await SendGamePacketAsync(header, payload);
     }
 

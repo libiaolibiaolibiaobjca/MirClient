@@ -39,6 +39,8 @@ public static class ProtocolConsts
     public const ushort CM_DEALCANCEL    = 1028; // 取消交易
     public const ushort CM_DEALCHGGOLD   = 1029; // 调整交易金币数 (Param: 金币数)
     public const ushort CM_DEALEND       = 1030; // 锁定交易并确认成交
+    public const ushort CM_USERSTORAGEITEM = 1031; // 请求存入物品至仓库 (Recog: NPC Id, Param/Tag: MakeIndex 低高字, Payload: 物品名)
+    public const ushort CM_USERTAKEBACKSTORAGEITEM = 1032; // 请求从仓库取回物品 (Recog: NPC Id, Param/Tag: MakeIndex 低高字, Payload: 物品名)
     public const ushort CM_OPENGUILDDLG  = 1035; // 请求打开行会主面板
     public const ushort CM_GUILDHOME     = 1036; // 查询行会主页信息
     public const ushort CM_GUILDMEMBERLIST = 1037; // 请求行会成员名册与职务列表
@@ -127,6 +129,14 @@ public static class ProtocolConsts
     public const ushort SM_DEALCHGGOLD_FAIL     = 685;  // 本地金币调整失败
     public const ushort SM_DEALREMOTECHGGOLD    = 686;  // 对方金币调整同步 (Recog: 对方金币数)
     public const ushort SM_DEALSUCCESS          = 687;  // 交易锁定并成交
+    public const ushort SM_SENDUSERSTORAGEITEM       = 700;  // 打开仓库保管存入界面 (Recog: NPC Id)
+    public const ushort SM_STORAGE_OK                = 701;  // 物品存入仓库成功
+    public const ushort SM_STORAGE_FULL              = 702;  // 仓库已满提示
+    public const ushort SM_STORAGE_FAIL              = 703;  // 物品存入仓库失败
+    public const ushort SM_SAVEITEMLIST              = 704;  // 下发仓库物品名册 (Payload 为多个 ClientItem)
+    public const ushort SM_TAKEBACKSTORAGEITEM_OK    = 705;  // 取回物品成功 (Recog: MakeIndex)
+    public const ushort SM_TAKEBACKSTORAGEITEM_FAIL  = 706;  // 取回物品失败
+    public const ushort SM_TAKEBACKSTORAGEITEM_FULLBAG = 707; // 取回失败：包裹已满或超重
     public const ushort SM_OPENGUILDDLG         = 753;  // 打开行会面板成功 (Payload: 行会名与会长权限等)
     public const ushort SM_OPENGUILDDLG_FAIL    = 754;  // 打开行会失败 (未加入任何行会)
     public const ushort SM_SENDGUILDMEMBERLIST  = 756;  // 下发全行会职务层级与成员名册 (Payload: #RankNo/*RankName/Member1/.../)

@@ -50,6 +50,7 @@ public class GameScene : IScene
     private bool _showEquip = false;
     private bool _showGroupWindow = false;
     private bool _showGuildWindow = false;
+    private bool _showStorageWindow = false;
     private bool _showStallWindow = false;
     private bool _showSiegeWindow = false;
     private bool _showSocialWindow = false;
@@ -279,6 +280,25 @@ public class GameScene : IScene
         _engine.NetworkSession.OnGuildActionResult += result =>
         {
             _chatLogs.Add($"[行会] {result.Message}");
+        };
+        _engine.NetworkSession.OnOpenStorage += merchantId =>
+        {
+            _chatLogs.Add($"[仓库保管] 仓库保管员 (ID:{merchantId}) 已打开仓库，您可以存入或取回物品。");
+            _showStorageWindow = true;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        };
+        _engine.NetworkSession.OnStorageItemList += (records, curPage, totalPages) =>
+        {
+            _chatLogs.Add($"[仓库保管] 仓库名册同步完成: 共 {records.Count} 件保管物品 (第 {curPage + 1}/{totalPages} 页)。");
+            _showStorageWindow = true;
+        };
+        _engine.NetworkSession.OnStorageActionResult += result =>
+        {
+            _chatLogs.Add($"[仓库保管] {result.Message}");
+            if (result.Success)
+            {
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            }
         };
     }
 
@@ -530,6 +550,13 @@ public class GameScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.F))
         {
             _showSocialWindow = !_showSocialWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // U: 开关个人仓库保管箱面板
+        if (Raylib.IsKeyPressed(KeyboardKey.U) && !_isChatInputActive)
+        {
+            _showStorageWindow = !_showStorageWindow;
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
@@ -1086,6 +1113,12 @@ public class GameScene : IScene
         if (_showGuildWindow)
         {
             RenderGuildWindow(screenW, screenH);
+        }
+
+        // 5.3.1 渲染 U 键个人仓库保管箱面板
+        if (_showStorageWindow)
+        {
+            RenderStorageWindow(screenW, screenH);
         }
 
         // 5.4 渲染 V 键主城安全区摆摊货架面板
@@ -2768,6 +2801,101 @@ public class GameScene : IScene
                         _ = _engine.NetworkSession.SendOpenGuildDlgAsync();
                     }
                     _showGuildWindow = true;
+                }
+                break;
+
+            case ParsedCommandType.Storage:
+                if (cmd.SubAction == "open")
+                {
+                    _showStorageWindow = true;
+                    _chatLogs.Add("[仓库] 个人仓库已开启 (快捷键 U)。");
+                }
+                else if (cmd.SubAction == "save")
+                {
+                    if (string.IsNullOrWhiteSpace(cmd.TargetName))
+                    {
+                        _chatLogs.Add("[仓库] 请指定要存入的物品名字，例如: @storage save 裁决之杖");
+                    }
+                    else
+                    {
+                        var bagItem = _inv.BagItems.FirstOrDefault(it => it != null && it.Name.Equals(cmd.TargetName, StringComparison.OrdinalIgnoreCase));
+                        if (bagItem == null)
+                        {
+                            _chatLogs.Add($"[仓库] 背包中未找到物品【{cmd.TargetName}】！");
+                        }
+                        else if (StorageManager.Instance.IsFull)
+                        {
+                            _chatLogs.Add("[仓库] 个人仓库已满，无法再保管物品！");
+                        }
+                        else
+                        {
+                            if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                            {
+                                int merchantId = StorageManager.Instance.CurrentMerchantId;
+                                _ = _engine.NetworkSession.SendSaveStorageItemAsync(merchantId, bagItem.Id, bagItem.Name);
+                                _chatLogs.Add($"[仓库] 已向服务器发送存入【{bagItem.Name}】请求...");
+                            }
+                            else
+                            {
+                                // 单机模拟
+                                _inv.RemoveItemById(bagItem.Id);
+                                StorageManager.Instance.SaveItem(bagItem);
+                                _chatLogs.Add($"[单机模拟] 成功将【{bagItem.Name}】存入仓库。当前仓库共有 {StorageManager.Instance.Count} 件物品。");
+                                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                            }
+                        }
+                    }
+                }
+                else if (cmd.SubAction == "take")
+                {
+                    if (string.IsNullOrWhiteSpace(cmd.TargetName))
+                    {
+                        _chatLogs.Add("[仓库] 请指定要取回的物品名字，例如: @storage take 裁决之杖");
+                    }
+                    else
+                    {
+                        var storeItem = StorageManager.Instance.Items.FirstOrDefault(it => it.Name.Equals(cmd.TargetName, StringComparison.OrdinalIgnoreCase));
+                        if (storeItem == null)
+                        {
+                            _chatLogs.Add($"[仓库] 仓库中未找到物品【{cmd.TargetName}】！");
+                        }
+                        else if (_inv.IsFull)
+                        {
+                            _chatLogs.Add("[仓库] 您的包裹已满，无法容纳取出的物品！");
+                        }
+                        else
+                        {
+                            if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                            {
+                                int merchantId = StorageManager.Instance.CurrentMerchantId;
+                                _ = _engine.NetworkSession.SendTakeBackStorageItemAsync(merchantId, storeItem.Id, storeItem.Name);
+                                _chatLogs.Add($"[仓库] 已向服务器发送取回【{storeItem.Name}】请求...");
+                            }
+                            else
+                            {
+                                // 单机模拟
+                                var taken = StorageManager.Instance.TakeBackItem(storeItem.Id);
+                                if (taken != null)
+                                {
+                                    _inv.AddItem(taken);
+                                    _chatLogs.Add($"[单机模拟] 成功从仓库取回【{taken.Name}】并放入背包。");
+                                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (cmd.SubAction == "list")
+                {
+                    if (StorageManager.Instance.Count == 0)
+                    {
+                        _chatLogs.Add("[仓库] 当前仓库空空如也，未保管任何物品。");
+                    }
+                    else
+                    {
+                        string itemsStr = string.Join(", ", StorageManager.Instance.Items.Select(it => it.Name));
+                        _chatLogs.Add($"[仓库名册] 共 {StorageManager.Instance.Count} 件: {itemsStr}");
+                    }
                 }
                 break;
 
@@ -5144,6 +5272,77 @@ public class GameScene : IScene
                 SoundManager.Instance.Play(SoundEffectType.ButtonClick);
             }
         }
+    }
+
+    private void RenderStorageWindow(int screenW, int screenH)
+    {
+        int winW = 360;
+        int winH = 380;
+        int winX = (screenW - winW) / 2;
+        int winY = (screenH - winH) / 2;
+
+        // 背景暗色半透明面板
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(15, 18, 24, 235));
+        Raylib.DrawRectangleLines(winX, winY, winW, winH, new Color(198, 160, 80, 255));
+
+        // 标题栏
+        Raylib.DrawRectangle(winX, winY, winW, 28, new Color(35, 40, 50, 240));
+        FontManager.DrawTextWithShadow("【个人仓库保管箱】", winX + 12, winY + 6, 14, Color.Gold, Color.Black);
+
+        // 关闭按钮
+        Rectangle closeBtn = new Rectangle(winX + winW - 24, winY + 4, 18, 18);
+        Vector2 mousePos = Raylib.GetMousePosition();
+        bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeBtn);
+        Raylib.DrawRectangleRec(closeBtn, closeHover ? new Color(160, 40, 40, 255) : new Color(80, 40, 40, 220));
+        FontManager.DrawTextWithShadow("X", winX + winW - 20, winY + 6, 12, Color.White, Color.Black);
+        if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showStorageWindow = false;
+        }
+
+        // 仓库容量与状态提示
+        int count = StorageManager.Instance.Count;
+        int max = StorageManager.MAX_CAPACITY;
+        FontManager.DrawTextWithShadow($"保管数量: {count}/{max} 格  (快捷键: U)", winX + 14, winY + 36, 12, Color.RayWhite, Color.Black);
+
+        // 物品列表区域
+        int listY = winY + 58;
+        int itemH = 26;
+        var items = StorageManager.Instance.Items;
+
+        if (items.Count == 0)
+        {
+            FontManager.DrawTextWithShadow("仓库当前为空，可通过 @storage save <物品名> 存入", winX + 14, listY + 20, 12, Color.Gray, Color.Black);
+        }
+        else
+        {
+            for (int i = 0; i < Math.Min(items.Count, 10); i++)
+            {
+                var it = items[i];
+                Rectangle itemRect = new Rectangle(winX + 10, listY + i * itemH, winW - 20, itemH - 2);
+                bool itemHover = Raylib.CheckCollisionPointRec(mousePos, itemRect);
+
+                Raylib.DrawRectangleRec(itemRect, itemHover ? new Color(45, 55, 75, 200) : new Color(25, 30, 40, 180));
+                Raylib.DrawRectangleLinesEx(itemRect, 1, itemHover ? Color.Gold : new Color(60, 70, 85, 255));
+
+                FontManager.DrawTextWithShadow($"[{i + 1}] {it.Name}", (int)itemRect.X + 8, (int)itemRect.Y + 4, 12, itemHover ? Color.Yellow : Color.White, Color.Black);
+                FontManager.DrawTextWithShadow($"持久: {it.Dura}/{it.MaxDura}", (int)itemRect.X + winW - 130, (int)itemRect.Y + 4, 11, Color.LightGray, Color.Black);
+
+                // 右键快速取回
+                if (itemHover && Raylib.IsMouseButtonPressed(MouseButton.Right))
+                {
+                    ExecuteCommand(new ParsedCommand
+                    {
+                        Type = ParsedCommandType.Storage,
+                        SubAction = "take",
+                        TargetName = it.Name
+                    });
+                }
+            }
+        }
+
+        // 底部提示
+        FontManager.DrawTextWithShadow("提示: 右键点击条目可快速取回物品至背包", winX + 14, winY + winH - 24, 11, new Color(180, 180, 140, 255), Color.Black);
     }
 
     private void RenderStallWindow(int screenW, int screenH)
