@@ -408,6 +408,10 @@ public class GameScene : IScene
             {
                 TriggerComboAttack();
             }
+            else if (Raylib.IsKeyPressed(KeyboardKey.Z))
+            {
+                PerformWolongSearch();
+            }
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.M) && !_isChatInputActive)
         {
@@ -416,6 +420,10 @@ public class GameScene : IScene
         else if (Raylib.IsKeyPressed(KeyboardKey.C) && !_isChatInputActive)
         {
             TriggerComboAttack();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Z) && !_isChatInputActive)
+        {
+            PerformWolongSearch();
         }
 
         // 实时同步自身血量与地图至组队列表
@@ -677,6 +685,12 @@ public class GameScene : IScene
         _skillCd.Update(dt);
         MountManager.Instance.Update(dt);
         InternalPowerManager.Instance.Update(dt);
+        WolongManager.Instance.Update(dt, out string? wolongEvt);
+        if (!string.IsNullOrEmpty(wolongEvt))
+        {
+            _chatLogs.Add(wolongEvt);
+            SoundManager.Instance.Play(SoundEffectType.Teleport);
+        }
 
         // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
         if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
@@ -1556,6 +1570,23 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.LevelUp);
         }
 
+        // 卧龙山庄守将判定：倒地化作名将遗体灵魄
+        if (target.Name.Contains("守护者") || target.Name.Contains("庄主"))
+        {
+            WolongGuardianType gType = target.Name switch
+            {
+                var n when n.Contains("木") => WolongGuardianType.Wood,
+                var n when n.Contains("水") => WolongGuardianType.Water,
+                var n when n.Contains("火") => WolongGuardianType.Fire,
+                var n when n.Contains("土") => WolongGuardianType.Earth,
+                var n when n.Contains("庄主") => WolongGuardianType.Lord,
+                _ => WolongGuardianType.Metal
+            };
+            var corpse = WolongManager.Instance.DefeatGuardian(gType, target.TilePos);
+            _chatLogs.Add($"[卧龙山庄] 【{corpse.Name}】轰然倒地化作名将遗体！60秒内走近按 Ctrl+Z 或点击进行【灵符摸尸】！");
+            _skillFx.SpawnThunder(target.TilePos);
+        }
+
         HandleMonsterLoot(target);
     }
 
@@ -1868,6 +1899,9 @@ public class GameScene : IScene
 
         // 2.7 内功经络与连击绝学 HUD 标牌
         RenderInternalAndComboBadge(boardX, boardY);
+
+        // 2.8 卧龙山庄探秘与五元宝藏 HUD 标牌
+        RenderWolongBadge(boardX, boardY);
 
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
@@ -2945,6 +2979,62 @@ public class GameScene : IScene
                 else
                 {
                     TriggerComboAttack();
+                }
+                break;
+            }
+
+            case ParsedCommandType.Wolong:
+            {
+                var mgr = WolongManager.Instance;
+                if (cmd.SubAction == "enter")
+                {
+                    string enterMsg = mgr.StartInstance();
+                    _chatLogs.Add(enterMsg);
+                    _skillFx.SpawnLevelUp(_playerTilePos);
+                    SoundManager.Instance.Play(SoundEffectType.Teleport);
+                }
+                else if (cmd.SubAction == "spawn")
+                {
+                    string targetG = !string.IsNullOrEmpty(cmd.TargetName) ? cmd.TargetName : "金";
+                    WolongGuardianType gType = targetG switch
+                    {
+                        var n when n.Contains("木") => WolongGuardianType.Wood,
+                        var n when n.Contains("水") => WolongGuardianType.Water,
+                        var n when n.Contains("火") => WolongGuardianType.Fire,
+                        var n when n.Contains("土") => WolongGuardianType.Earth,
+                        var n when n.Contains("庄主") => WolongGuardianType.Lord,
+                        _ => WolongGuardianType.Metal
+                    };
+                    var gDef = WolongManager.GetGuardianDef(gType);
+                    Vector2 spTile = _playerTilePos + new Vector2(2, 0);
+                    int recog = Random.Shared.Next(80000, 90000);
+                    var entity = new MapEntity(recog, gDef.Name, EntityType.Monster, spTile, appr: 12, gDef.MaxHp);
+                    lock (_entities)
+                    {
+                        _entities.Add(entity);
+                    }
+                    _chatLogs.Add($"[卧龙山庄] 召唤古书名将【{gDef.Name}】(Lv.65 生命:{gDef.MaxHp}) 降临眼前！");
+                    _skillFx.SpawnThunder(spTile);
+                    SoundManager.Instance.Play(SoundEffectType.MonsterStruck);
+                }
+                else if (cmd.SubAction == "search")
+                {
+                    PerformWolongSearch();
+                }
+                else if (cmd.SubAction == "treasure")
+                {
+                    OpenWolongTreasure();
+                }
+                else if (cmd.SubAction == "charm" && cmd.Amount > 0)
+                {
+                    mgr.CharmsCount += cmd.Amount;
+                    _chatLogs.Add($"[卧龙GM] 充值灵符成功！当前灵符: {mgr.CharmsCount} 张");
+                    SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                }
+                else
+                {
+                    string orbs = string.Join(",", mgr.CollectedOrbs);
+                    _chatLogs.Add($"[卧龙山庄] 状态: {mgr.Phase} | 剩余时间: {(int)mgr.RemainingTime}s | 灵符: {mgr.CharmsCount}张 | 残页: {mgr.AncientPages} | 五元灵珠: {mgr.CollectedOrbs.Count}/5 ({orbs})");
                 }
                 break;
             }
@@ -5730,6 +5820,128 @@ public class GameScene : IScene
                 var (s, pMsg) = mgr.PierceAcupoint(m);
                 _chatLogs.Add($"[经络冲穴] {pMsg}");
                 if (s) SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        }
+    }
+
+    private void PerformWolongSearch()
+    {
+        var mgr = WolongManager.Instance;
+        var corpse = mgr.ActiveCorpses
+            .Where(c => !c.IsSearched && !c.IsExpired && Vector2.Distance(_playerTilePos, c.TilePos) <= 3.2f)
+            .OrderBy(c => Vector2.Distance(_playerTilePos, c.TilePos))
+            .FirstOrDefault();
+
+        if (corpse == null)
+        {
+            _chatLogs.Add("[灵符摸尸] 身边 3 格范围内未发现可探索的名将遗体！请击败卧龙守将后走近搜寻。");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        var loot = mgr.SearchCorpse(corpse.Id);
+        _chatLogs.Add(loot.Message);
+        if (loot.Success)
+        {
+            _skillFx.SpawnLevelUp(_playerTilePos);
+            SoundManager.Instance.Play(SoundEffectType.PickupItem);
+        }
+        else
+        {
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+    }
+
+    private void OpenWolongTreasure()
+    {
+        var mgr = WolongManager.Instance;
+        var (success, broadcast, rewards) = mgr.OpenFireDragonTreasure();
+        if (!success)
+        {
+            _chatLogs.Add($"[火龙宝藏] {broadcast}");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        _chatLogs.Add(broadcast);
+        foreach (var r in rewards)
+        {
+            _chatLogs.Add($"[宝藏大爆] 获得天地奇珍: 【{r}】！");
+        }
+        _skillFx.SpawnThunder(_playerTilePos);
+        _skillFx.SpawnFireSword(_playerTilePos, 0);
+        _skillFx.SpawnLevelUp(_playerTilePos);
+        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+    }
+
+    private void RenderWolongBadge(int boardX, int boardY)
+    {
+        var mgr = WolongManager.Instance;
+        int badgeX = boardX + 224;
+        int badgeY = boardY - 30;
+        int badgeW = 104;
+        int badgeH = 24;
+
+        Rectangle badgeRec = new(badgeX, badgeY, badgeW, badgeH);
+        Raylib.DrawRectangleRec(badgeRec, new Color((byte)22, (byte)16, (byte)12, (byte)220));
+
+        // 宝藏就绪时金色闪烁
+        Color borderCol;
+        if (mgr.HasCollectedAllOrbs)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            borderCol = new Color((byte)255, (byte)215, (byte)0, (byte)(255 * pulse));
+        }
+        else if (mgr.IsInstanceActive)
+        {
+            borderCol = new Color((byte)200, (byte)150, (byte)50, (byte)255);
+        }
+        else
+        {
+            borderCol = Color.DarkGray;
+        }
+        Raylib.DrawRectangleLines(badgeX, badgeY, badgeW, badgeH, borderCol);
+
+        if (mgr.IsInstanceActive)
+        {
+            int mm = (int)mgr.RemainingTime / 60;
+            int ss = (int)mgr.RemainingTime % 60;
+            FontManager.DrawTextWithShadow($"[卧龙]{mm:D2}:{ss:D2} 符:{mgr.CharmsCount}", badgeX + 4, badgeY + 2, 9, Color.Gold, Color.Black);
+            if (mgr.HasCollectedAllOrbs)
+            {
+                FontManager.DrawText("[宝藏就绪!点击]", badgeX + 4, badgeY + 12, 9, Color.Lime);
+            }
+            else
+            {
+                FontManager.DrawText($"五元:{mgr.CollectedOrbs.Count}/5 [Z摸尸]", badgeX + 4, badgeY + 12, 9, Color.LightGray);
+            }
+        }
+        else
+        {
+            FontManager.DrawTextWithShadow("[卧龙山庄]未开启", badgeX + 4, badgeY + 2, 9, Color.Gray, Color.Black);
+            FontManager.DrawText("[右键开启探秘]", badgeX + 4, badgeY + 12, 9, Color.DarkGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        if (Raylib.CheckCollisionPointRec(mPos, badgeRec))
+        {
+            Raylib.DrawRectangleLinesEx(badgeRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                if (mgr.HasCollectedAllOrbs && mgr.Phase == WolongInstancePhase.TreasureReady)
+                {
+                    OpenWolongTreasure();
+                }
+                else
+                {
+                    PerformWolongSearch();
+                }
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+            {
+                string msg = mgr.StartInstance();
+                _chatLogs.Add(msg);
+                SoundManager.Instance.Play(SoundEffectType.Teleport);
             }
         }
     }

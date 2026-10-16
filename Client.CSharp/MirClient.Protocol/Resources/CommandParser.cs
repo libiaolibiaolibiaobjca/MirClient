@@ -42,6 +42,7 @@ public enum ParsedCommandType
     Charge,     // @charge 战马冲锋破军神技
     Internal,   // @internal 内功等级/内力/经验管理
     Combo,      // @combo 职业连击绝学释放与经脉贯通
+    Wolong,     // @wolong 卧龙山庄探秘与五元宝藏
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1330,6 +1331,37 @@ public static class CommandParser
                 };
             }
 
+            case "wolong":
+            case "卧龙":
+            case "山庄":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "status";
+                string extra = parts.Length >= 3 ? parts[2].Trim() : "";
+                int count = 0;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int c))
+                {
+                    count = c;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Wolong,
+                    SubAction = sub,
+                    TargetName = extra,
+                    Amount = count,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "enter" or "开启" or "进入" => "开启卧龙山庄 30 分钟限时探秘副本",
+                        "spawn" or "召唤" => $"召唤卧龙守将【{extra}】",
+                        "search" or "摸尸" or "探索" => "消耗灵符搜寻名将遗体",
+                        "treasure" or "宝藏" or "开箱" => "解开并开启卧龙火龙宝藏大爆",
+                        "charm" or "灵符" => $"获取卧龙灵符 +{count} 张",
+                        _ => "卧龙山庄五元探秘与宝藏进度查询"
+                    }
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1340,6 +1372,7 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
+                              "  @wolong [enter/spawn/search/treasure] - 卧龙山庄五元守护者与火龙宝藏\n" +
                               "  @internal [lvl/force/exp/full]- 内功等级与内力护盾调试\n" +
                               "  @combo [cast/unlock/full]     - 释放本职业多段连击绝学 (Ctrl+D / C)\n" +
                               "  @mount [ride/down/switch 名驹] - 战马坐骑上下马与切换 (Ctrl+M / M)\n" +
