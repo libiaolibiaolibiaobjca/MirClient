@@ -300,6 +300,35 @@ public class GameScene : IScene
                 SoundManager.Instance.Play(SoundEffectType.ButtonClick);
             }
         };
+        _engine.NetworkSession.OnWarStatusChanged += status =>
+        {
+            string phaseName = SabukSiegeProtocolManager.GetSiegePhaseName(status.Phase);
+            _chatLogs.Add($"【沙巴克战况】当前进入【{phaseName}】！剩余交火时长: {Math.Ceiling(status.RemainingSeconds / 60)} 分钟。");
+            if (status.Phase == SiegePhase.Fighting)
+            {
+                SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        };
+        _engine.NetworkSession.OnWallStatusChanged += wall =>
+        {
+            string dmgDesc = wall.DamageLevel switch
+            {
+                0 => "完好无损",
+                1 => "轻度裂痕",
+                2 => "严重破损",
+                _ => "轰然坍塌"
+            };
+            _chatLogs.Add($"【沙城工事】城门状态更新: {dmgDesc} (耐久度: {wall.HpPercent}%, {(wall.IsOpen ? "开启" : "紧闭")})");
+        };
+        _engine.NetworkSession.OnCastleOwnerChanged += owner =>
+        {
+            _chatLogs.Add($"【全服公告】沙巴克城主易主！行会【{owner.GuildName}】(掌门人: {owner.MasterName}) 傲视群雄，入主沙城！");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
+        _engine.NetworkSession.OnCastleGold += gold =>
+        {
+            _chatLogs.Add($"【沙城金库】城池累积税金已同步: {gold:N0} 金币。");
+        };
     }
 
     public void Init()
@@ -2986,15 +3015,23 @@ public class GameScene : IScene
             case ParsedCommandType.Siege:
                 if (cmd.SubAction == "start")
                 {
-                    if (SabukSiegeManager.Instance.StartSiege(cmd.Amount, out string startMsg))
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
                     {
-                        _chatLogs.Add(startMsg);
-                        _showSiegeWindow = true;
-                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        _ = _engine.NetworkSession.SendGuildWarAsync(string.IsNullOrEmpty(cmd.TargetName) ? "Sabuk" : cmd.TargetName);
+                        _chatLogs.Add("[沙巴克] 已向服务端提交攻城战/宣战申请...");
                     }
                     else
                     {
-                        _chatLogs.Add($"[攻城战] 开启失败: {startMsg}");
+                        if (SabukSiegeManager.Instance.StartSiege(cmd.Amount, out string startMsg))
+                        {
+                            _chatLogs.Add(startMsg);
+                            _showSiegeWindow = true;
+                            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[攻城战] 开启失败: {startMsg}");
+                        }
                     }
                 }
                 else if (cmd.SubAction == "stop")
@@ -3042,6 +3079,23 @@ public class GameScene : IScene
                         _chatLogs.Add($"[攻城战] 攻门失败: {gateMsg}");
                     }
                 }
+                else if (cmd.SubAction == "gold")
+                {
+                    int withdrawAmt = cmd.Amount > 0 ? cmd.Amount : 100000;
+                    if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendCastleWithdrawGoldAsync(withdrawAmt);
+                        _chatLogs.Add($"[沙巴克] 已向服务端提交提取城池税金请求: {withdrawAmt:N0} 金币...");
+                    }
+                    else
+                    {
+                        int actual = Math.Min(SabukSiegeManager.Instance.CastleGold, withdrawAmt);
+                        SabukSiegeManager.Instance.CastleGold -= actual;
+                        _gold += actual;
+                        _chatLogs.Add($"[单机模拟] 成功提取城池资金 {actual:N0} 金币，随身金币已增至 {_gold:N0}。");
+                        SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                    }
+                }
                 else if (cmd.SubAction == "status")
                 {
                     var sm = SabukSiegeManager.Instance;
@@ -3052,7 +3106,7 @@ public class GameScene : IScene
                         _ => "和平休战期"
                     };
                     string gateStr = sm.IsGateDestroyed ? "已击溃坍塌" : $"{sm.GateCurrentHp}/{sm.GateMaxHp}";
-                    _chatLogs.Add($"[沙城战报] 状态: {phaseStr} | 沙城霸主: 【{sm.CurrentLordGuild}】 | 皇宫据守: 【{sm.PalaceOccupierGuild}】 | 城门坚固度: {gateStr}");
+                    _chatLogs.Add($"[沙城战报] 状态: {phaseStr} | 沙城霸主: 【{sm.CurrentLordGuild}】(城主: {sm.CurrentLordMaster}) | 皇宫据守: 【{sm.PalaceOccupierGuild}】 | 城门坚固度: {gateStr} | 金库资金: {sm.CastleGold:N0}");
                 }
                 else
                 {

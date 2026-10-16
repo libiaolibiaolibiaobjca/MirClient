@@ -77,6 +77,10 @@ public class NetworkSession : IDisposable
     public event Action<int>? OnOpenStorage;
     public event Action<IReadOnlyList<StorageItemRecord>, int, int>? OnStorageItemList;
     public event Action<StorageActionResult>? OnStorageActionResult;
+    public event Action<WarStatusRecord>? OnWarStatusChanged;
+    public event Action<CastleWallStatusRecord>? OnWallStatusChanged;
+    public event Action<CastleOwnerRecord>? OnCastleOwnerChanged;
+    public event Action<int>? OnCastleGold;
 
     public NetworkSession()
     {
@@ -711,6 +715,50 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 沙巴克攻城战阶段广播 (SM_WARSTATUS = 765)
+                case ProtocolConsts.SM_WARSTATUS:
+                {
+                    var record = SabukSiegeProtocolManager.ParseWarStatus(e.Header);
+                    SabukSiegeManager.Instance.SyncServerWarStatus(record.Phase, record.RemainingSeconds);
+                    Log($"[沙巴克] 战事阶段更新: {SabukSiegeProtocolManager.GetSiegePhaseName(record.Phase)} (剩余: {record.RemainingSeconds:F0} 秒)");
+                    OnWarStatusChanged?.Invoke(record);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 沙巴克城门工事状态广播 (SM_SABUK_WALLSTATUS = 763)
+                case ProtocolConsts.SM_SABUK_WALLSTATUS:
+                {
+                    var record = SabukSiegeProtocolManager.ParseWallStatus(e.Header);
+                    SabukSiegeManager.Instance.SyncServerWallStatus(record.DamageLevel, record.HpPercent, record.IsOpen);
+                    Log($"[沙城工事] 城门耐久: {record.HpPercent}%, 破损等级: {record.DamageLevel}, 状态: {(record.IsOpen ? "开启" : "紧闭")}");
+                    OnWallStatusChanged?.Invoke(record);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 沙巴克城主归属全服广播 (SM_CASTLE_OWNER = 764)
+                case ProtocolConsts.SM_CASTLE_OWNER:
+                {
+                    var record = SabukSiegeProtocolManager.ParseCastleOwner(e.Payload);
+                    SabukSiegeManager.Instance.SyncServerCastleOwner(record.GuildName, record.MasterName);
+                    Log($"[沙城霸主] 当前占领行会: 【{record.GuildName}】(掌门人: {record.MasterName}, 占领日期: {record.OccupyDate})");
+                    OnCastleOwnerChanged?.Invoke(record);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 沙巴克城池金币税收广播 (SM_CASTLE_GOLD = 762)
+                case ProtocolConsts.SM_CASTLE_GOLD:
+                {
+                    int gold = e.Header.Recog;
+                    SabukSiegeManager.Instance.SyncServerCastleGold(gold);
+                    Log($"[沙城金库] 城池累积金币税收: {gold:N0} 金币");
+                    OnCastleGold?.Invoke(gold);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -968,6 +1016,24 @@ public class NetworkSession : IDisposable
     public async Task SendTakeBackStorageItemAsync(int merchantId, int makeIndex, string itemName)
     {
         var (header, payload) = StorageProtocolManager.CreateTakeBackStorageItemPacket(merchantId, makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 申请攻城战或行会宣战 (CM_GUILDWAR = 1042)
+    /// </summary>
+    public async Task SendGuildWarAsync(string targetName = "Sabuk")
+    {
+        var (header, payload) = SabukSiegeProtocolManager.CreateGuildWarPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 沙城城主提取城池税金 (CM_CASTLEWITHDRAWGOLD = 1043)
+    /// </summary>
+    public async Task SendCastleWithdrawGoldAsync(int amount)
+    {
+        var (header, payload) = SabukSiegeProtocolManager.CreateCastleWithdrawGoldPacket(amount);
         await SendGamePacketAsync(header, payload);
     }
 

@@ -46,11 +46,15 @@ public class SabukSiegeManager
 
     public SiegePhase CurrentPhase { get; private set; } = SiegePhase.Peace;
     public string CurrentLordGuild { get; private set; } = "傲视天下"; // 初始沙城霸主
+    public string CurrentLordMaster { get; private set; } = "沙城霸主"; // 当前城主掌门人
     public string PalaceOccupierGuild { get; private set; } = "傲视天下"; // 皇宫大殿据守行会
 
     public int GateMaxHp { get; private set; } = DEFAULT_GATE_MAX_HP;
     public int GateCurrentHp { get; private set; } = DEFAULT_GATE_MAX_HP;
     public bool IsGateDestroyed => GateCurrentHp <= 0;
+    public bool IsGateOpen { get; private set; } = false;
+    public int GateDamageLevel { get; private set; } = 0;
+    public int CastleGold { get; set; } = 2000000;
 
     public float RemainingBattleTime { get; private set; } = 0f;
     public float TotalBattleTime { get; private set; } = DEFAULT_BATTLE_DURATION;
@@ -71,13 +75,63 @@ public class SabukSiegeManager
     {
         CurrentPhase = SiegePhase.Peace;
         CurrentLordGuild = "傲视天下";
+        CurrentLordMaster = "沙城霸主";
         PalaceOccupierGuild = "傲视天下";
         GateMaxHp = DEFAULT_GATE_MAX_HP;
         GateCurrentHp = DEFAULT_GATE_MAX_HP;
+        IsGateOpen = false;
+        GateDamageLevel = 0;
+        CastleGold = 2000000;
         RemainingBattleTime = 0f;
         TotalBattleTime = DEFAULT_BATTLE_DURATION;
         _palaceTickAccumulator = 0f;
         _guildScores.Clear();
+    }
+
+    /// <summary>
+    /// 从服务端同步攻城战阶段与剩余时长 (SM_WARSTATUS = 765)
+    /// </summary>
+    public void SyncServerWarStatus(SiegePhase phase, float remainingSeconds)
+    {
+        CurrentPhase = phase;
+        RemainingBattleTime = remainingSeconds;
+        if (remainingSeconds > TotalBattleTime)
+        {
+            TotalBattleTime = remainingSeconds;
+        }
+    }
+
+    /// <summary>
+    /// 从服务端同步沙城城门破损与开闭状态 (SM_SABUK_WALLSTATUS = 763)
+    /// </summary>
+    public void SyncServerWallStatus(int damageLevel, int hpPercent, bool isOpen)
+    {
+        GateDamageLevel = damageLevel;
+        IsGateOpen = isOpen;
+        GateCurrentHp = (int)(GateMaxHp * (Math.Clamp(hpPercent, 0, 100) / 100f));
+    }
+
+    /// <summary>
+    /// 从服务端同步沙城归属行会与掌门人 (SM_CASTLE_OWNER = 764)
+    /// </summary>
+    public void SyncServerCastleOwner(string lordGuild, string masterName)
+    {
+        if (!string.IsNullOrWhiteSpace(lordGuild))
+        {
+            CurrentLordGuild = lordGuild.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(masterName))
+        {
+            CurrentLordMaster = masterName.Trim();
+        }
+    }
+
+    /// <summary>
+    /// 从服务端同步城池金币税收 (SM_CASTLE_GOLD = 762)
+    /// </summary>
+    public void SyncServerCastleGold(int gold)
+    {
+        CastleGold = Math.Max(0, gold);
     }
 
     /// <summary>

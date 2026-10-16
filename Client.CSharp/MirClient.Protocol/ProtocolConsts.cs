@@ -48,6 +48,8 @@ public static class ProtocolConsts
     public const ushort CM_GUILDDELMEMBER= 1039; // 逐出成员或退出行会 (Payload: 目标人名)
     public const ushort CM_GUILDUPDATENOTICE = 1040; // 修改行会公告 (Payload: 公告内容)
     public const ushort CM_GUILDUPDATERANKINFO = 1041; // 更新行会职务头衔设置
+    public const ushort CM_GUILDWAR      = 1042; // 申请开启沙巴克攻城战 / 行会宣战请求 (Payload: 目标行会名)
+    public const ushort CM_CASTLEWITHDRAWGOLD = 1043; // 沙城城主提取城池税金 (Recog: 提款金额)
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -145,5 +147,9 @@ public static class ProtocolConsts
     public const ushort SM_GUILDDELMEMBER_OK    = 759;  // 移出或退出行会成功
     public const ushort SM_GUILDDELMEMBER_FAIL  = 760;  // 移出或退出行会失败
     public const ushort SM_GUILDRANKUPDATE_FAIL = 761;  // 职务信息更新失败
+    public const ushort SM_CASTLE_GOLD          = 762;  // 下发沙巴克城池当前金币与税收总额 (Recog: 金币数)
+    public const ushort SM_SABUK_WALLSTATUS     = 763;  // 沙巴克城门与工事防御状态广播 (Recog: 破损等级, Param: 残余HP%, Tag: 1=开启/0=关闭)
+    public const ushort SM_CASTLE_OWNER         = 764;  // 沙巴克霸主行会与掌门人全服广播 (Payload: 行会名/掌门人名/占领日期)
+    public const ushort SM_WARSTATUS            = 765;  // 沙巴克攻城战阶段状态全服同步 (Recog: 阶段代码 0~3, Param: 剩余时长秒数)
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }
