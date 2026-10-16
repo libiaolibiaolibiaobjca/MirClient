@@ -46,6 +46,8 @@ public class NetworkSession : IDisposable
     // 消息通知事件
     public event Action<string>? OnLog;
     public event Action<DefaultMessage, string>? OnGamePacket;
+    public event Action<int, int, string>? OnMerchantSay;
+    public event Action? OnMerchantClose;
 
     public NetworkSession()
     {
@@ -253,6 +255,25 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // NPC 对话与脚本下发
+                case ProtocolConsts.SM_MERCHANTSAY:
+                {
+                    string decoded = EDCode.DecodeText(e.Payload);
+                    NpcScriptDialogManager.Instance.ParseMerchantSay(e.Header.Recog, e.Header.Param, decoded);
+                    OnMerchantSay?.Invoke(e.Header.Recog, e.Header.Param, decoded);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // NPC 对话框关闭
+                case ProtocolConsts.SM_MERCHANTDLGCLOSE:
+                {
+                    NpcScriptDialogManager.Instance.CloseDialog();
+                    OnMerchantClose?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -268,6 +289,24 @@ public class NetworkSession : IDisposable
         {
             Log($"[包解析异常] {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 发送点击 NPC 开始对话数据包 (CM_CLICKNPC)
+    /// </summary>
+    public async Task SendClickNpcAsync(int npcRecogId)
+    {
+        var (msg, _) = NpcScriptDialogManager.CreateClickNpcPacket(npcRecogId);
+        await SendGamePacketAsync(msg, "");
+    }
+
+    /// <summary>
+    /// 发送选择 NPC 脚本选项数据包 (CM_MERCHANTDLGSELECT)
+    /// </summary>
+    public async Task SendNpcSelectAsync(int npcRecogId, string label)
+    {
+        var (msg, _) = NpcScriptDialogManager.CreateSelectPacket(npcRecogId, label);
+        await SendGamePacketAsync(msg, EDCode.EncodeString(label));
     }
 
     /// <summary>

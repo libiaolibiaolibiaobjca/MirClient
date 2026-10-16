@@ -3807,27 +3807,49 @@ public class GameScene : IScene
         _activeNpcProfile = NpcShop.ResolveProfile(npc.Name);
         _npcDialogMode = NpcDialogMode.Dialog;
         _targetTilePos = _playerTilePos; // 停步与 NPC 对话
-        _chatLogs.Add($"[NPC] 正在与【{_activeNpcProfile.Name}】对话...");
+
+        // 若处于网络连接状态，发送真实 OpenMir2 CM_CLICKNPC 封包
+        if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+        {
+            _ = _engine.NetworkSession.SendClickNpcAsync((int)npc.RecogId);
+        }
+
+        // 装载标准 NPC 脚本模型
+        string script = NpcScriptDialogManager.GetMockNpcScript(npc.Name);
+        NpcScriptDialogManager.Instance.ParseMerchantSay((int)npc.RecogId, 0, script);
+
+        _chatLogs.Add($"[NPC] 正在与【{NpcScriptDialogManager.Instance.CurrentNpcName}】对话...");
     }
 
     private void RenderNpcDialogWindow(int screenW, int screenH)
     {
-        if (_activeNpc == null || _activeNpcProfile == null) return;
+        var mgr = NpcScriptDialogManager.Instance;
+        if (_activeNpc == null && !mgr.IsOpen) return;
 
-        int winW = 380;
-        int winH = 280;
+        // 按 ESC 键关闭 NPC 对话框
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            mgr.CloseDialog();
+            _activeNpc = null;
+            _activeNpcProfile = null;
+            return;
+        }
+
+        int winW = 420;
+        int winH = 320;
         int winX = (screenW - winW) / 2;
         int winY = (screenH - 140 - winH) / 2 - 20;
         Vector2 mousePos = Raylib.GetMousePosition();
 
         // 1. 经典复古羊皮木纹外框与金线浮雕
-        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(20, 16, 12, 245));
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(20, 16, 12, 248));
         Raylib.DrawRectangleLines(winX, winY, winW, winH, Color.Gold);
         Raylib.DrawRectangleLines(winX + 2, winY + 2, winW - 4, winH - 4, new Color(90, 75, 45, 200));
 
         // 2. 标题栏
         Raylib.DrawRectangle(winX, winY, winW, 28, new Color(48, 38, 24, 255));
-        string title = $"【 {_activeNpcProfile.Name} 】  {_activeNpcProfile.Title}";
+        string npcTitle = !string.IsNullOrEmpty(mgr.CurrentNpcName) ? mgr.CurrentNpcName : (_activeNpc?.Name ?? "神秘NPC");
+        string title = $"【 {npcTitle} 】  [ESC关闭]";
         FontManager.DrawTextWithShadow(title, winX + 12, winY + 7, 12, Color.Gold, Color.Black);
 
         // 关闭叉号 [X]
@@ -3837,6 +3859,7 @@ public class GameScene : IScene
         FontManager.DrawText("X", winX + winW - 19, winY + 7, 12, closeHover ? Color.White : Color.Gray);
         if (closeHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
+            mgr.CloseDialog();
             _activeNpc = null;
             _activeNpcProfile = null;
             return;
@@ -3845,35 +3868,64 @@ public class GameScene : IScene
         // 3. NPC 状态模式渲染
         if (_npcDialogMode == NpcDialogMode.Dialog)
         {
-            // 问候台词
-            FontManager.DrawTextWithShadow(_activeNpcProfile.Greeting, winX + 16, winY + 42, 12, Color.LightGray, Color.Black);
-
-            // 分割金线
-            Raylib.DrawLine(winX + 12, winY + 110, winX + winW - 12, winY + 110, new Color(85, 70, 40, 200));
-
-            // 选项列表
-            int optY = winY + 124;
-            for (int i = 0; i < _activeNpcProfile.Options.Count; i++)
+            // 键盘数字键 1~9 快捷选择
+            for (int k = 0; k < Math.Min(9, mgr.Links.Count); k++)
             {
-                var opt = _activeNpcProfile.Options[i];
-                Rectangle optRect = new(winX + 20, optY, winW - 40, 24);
-                bool optHover = Raylib.CheckCollisionPointRec(mousePos, optRect);
-
-                if (optHover)
+                if (Raylib.IsKeyPressed(KeyboardKey.One + k))
                 {
-                    Raylib.DrawRectangleRec(optRect, new Color(60, 48, 30, 180));
-                    Raylib.DrawRectangleLinesEx(optRect, 1, Color.Gold);
+                    TriggerNpcScriptLink(mgr.Links[k]);
+                    return;
+                }
+            }
+
+            int contentY = winY + 38;
+
+            // 逐行渲染解析后的脚本内容
+            for (int lineIdx = 0; lineIdx < mgr.Lines.Count; lineIdx++)
+            {
+                var line = mgr.Lines[lineIdx];
+                int curX = winX + 16;
+
+                foreach (var seg in line.Segments)
+                {
+                    if (!seg.IsLink || seg.LinkInfo == null)
+                    {
+                        // 普通文本
+                        FontManager.DrawTextWithShadow(seg.Text, curX, contentY, 11, Color.LightGray, Color.Black);
+                        curX += FontManager.MeasureText(seg.Text, 11);
+                    }
+                    else
+                    {
+                        // 带有序号的可点击脚本超链接 <文本/@标签>
+                        var link = seg.LinkInfo;
+                        string linkDisplay = $"[{link.Index}] {link.Text}";
+                        int linkW = FontManager.MeasureText(linkDisplay, 11);
+                        Rectangle linkRect = new(curX, contentY - 1, linkW + 6, 14);
+                        bool isHover = Raylib.CheckCollisionPointRec(mousePos, linkRect);
+
+                        if (isHover)
+                        {
+                            Raylib.DrawRectangleRec(linkRect, new Color(70, 55, 30, 200));
+                            Raylib.DrawRectangleLinesEx(linkRect, 1, Color.Gold);
+                        }
+
+                        Color linkColor = isHover ? Color.Yellow : new Color(110, 190, 255, 255);
+                        FontManager.DrawTextWithShadow(linkDisplay, curX + 3, contentY, 11, linkColor, Color.Black);
+
+                        // 绘制下划线强调链接属性
+                        Raylib.DrawLine(curX + 3, contentY + 12, curX + 3 + linkW, contentY + 12, linkColor);
+
+                        if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                        {
+                            TriggerNpcScriptLink(link);
+                            return;
+                        }
+
+                        curX += linkW + 10;
+                    }
                 }
 
-                Color optColor = optHover ? Color.Yellow : new Color(130, 200, 255, 255);
-                FontManager.DrawText(opt.Label, winX + 26, optY + 5, 12, optColor);
-
-                if (optHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
-                {
-                    HandleNpcAction(opt.ActionCode);
-                }
-
-                optY += 28;
+                contentY += 20; // 换行
             }
         }
         else if (_npcDialogMode == NpcDialogMode.Shop)
@@ -3932,10 +3984,34 @@ public class GameScene : IScene
         }
     }
 
+    private void TriggerNpcScriptLink(NpcScriptLink link)
+    {
+        var mgr = NpcScriptDialogManager.Instance;
+        if (link.IsExit)
+        {
+            mgr.CloseDialog();
+            _activeNpc = null;
+            _activeNpcProfile = null;
+            return;
+        }
+
+        // 若处于联网模式，向 OpenMir2 发送真实 CM_MERCHANTDLGSELECT 封包
+        if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+        {
+            _ = _engine.NetworkSession.SendNpcSelectAsync(mgr.CurrentNpcRecogId, link.Tag);
+        }
+
+        HandleNpcAction(link.Tag);
+    }
+
     private void HandleNpcAction(string actionCode)
     {
         switch (actionCode)
         {
+            case "@main":
+                string homeScript = NpcScriptDialogManager.GetMockNpcScript(_activeNpc?.Name ?? "比奇老兵");
+                NpcScriptDialogManager.Instance.ParseMerchantSay((int)(_activeNpc?.RecogId ?? 0), 0, homeScript);
+                break;
             case "@buy":
                 _npcDialogMode = NpcDialogMode.Shop;
                 break;
@@ -3945,6 +4021,7 @@ public class GameScene : IScene
                 _chatLogs.Add($"[NPC] 【{_activeNpc?.Name}】：“双击包裹中的闲置装备或药水即可直接折价出售！”");
                 break;
             case "@repair":
+            case "@repair_normal":
                 ItemUpgradeManager.Instance.RepairAll(_inv, ref _gold, special: false, out string repMsg);
                 _chatLogs.Add($"[铁匠修理] {repMsg}");
                 SoundManager.Instance.Play(SoundEffectType.LevelUp);
@@ -3955,6 +4032,7 @@ public class GameScene : IScene
                 SoundManager.Instance.Play(SoundEffectType.LevelUp);
                 break;
             case "@upgrade":
+            case "@start_upgrade":
                 var currentWeapon = _inv.EquippedItems[(int)EquipSlot.Weapon];
                 if (currentWeapon == null)
                 {
@@ -3973,17 +4051,41 @@ public class GameScene : IScene
                     }
                 }
                 break;
-            case "@tele_tomb":
-                ExecuteMapTransition("D021", new Vector2(180, 200), "老兵空间秘法传送");
-                break;
+            case "@move_mengzhong":
             case "@tele_mengzhong":
                 ExecuteMapTransition("3", new Vector2(330, 330), "老兵空间秘法传送");
+                NpcScriptDialogManager.Instance.CloseDialog();
                 break;
+            case "@move_snake":
             case "@tele_snake":
                 ExecuteMapTransition("2", new Vector2(280, 180), "老兵空间秘法传送");
+                NpcScriptDialogManager.Instance.CloseDialog();
+                break;
+            case "@tele_tomb":
+                ExecuteMapTransition("D021", new Vector2(180, 200), "老兵空间秘法传送");
+                NpcScriptDialogManager.Instance.CloseDialog();
                 break;
             case "@tele_biqi":
                 ExecuteMapTransition("0", new Vector2(330, 268), "老兵空间秘法传送");
+                NpcScriptDialogManager.Instance.CloseDialog();
+                break;
+            case "@cure":
+                _hp = MaxHp;
+                _mp = MaxMp;
+                _skillFx.SpawnLevelUp(_playerTilePos);
+                SoundManager.Instance.Play(SoundEffectType.UsePotion);
+                _chatLogs.Add("[药店] 药店老板：“已为你精心包扎祛毒，元气恢复！”");
+                break;
+            case "@tianguan":
+            case "@enter_pass":
+            case "@enter":
+                PerformHeavenlyPassAction();
+                break;
+            case "@buy_1":
+                HeavenlyPassManager.Instance.ExchangeTalismans(ref _gold, 1);
+                break;
+            case "@buy_3":
+                HeavenlyPassManager.Instance.ExchangeTalismans(ref _gold, 3);
                 break;
             case "@legend":
                 _chatLogs.Add("[传说] 比奇老兵：“相传唯有攻陷沙巴克皇宫并立于城主雕像之巅的行会霸主，方能号令玛法！”");
@@ -4048,10 +4150,20 @@ public class GameScene : IScene
                     }
                 }
                 break;
+            case "@exit":
+            case "@closewin":
             case "@close":
-            default:
+                NpcScriptDialogManager.Instance.CloseDialog();
                 _activeNpc = null;
                 _activeNpcProfile = null;
+                break;
+            default:
+                // 若为多级脚本子页面，在本地尝试解析下级分支
+                string subScript = NpcScriptDialogManager.GetMockNpcScript(_activeNpc?.Name ?? "比奇老兵", actionCode);
+                if (!string.IsNullOrEmpty(subScript) && subScript != NpcScriptDialogManager.Instance.RawSaying)
+                {
+                    NpcScriptDialogManager.Instance.ParseMerchantSay((int)(_activeNpc?.RecogId ?? 0), 0, subScript);
+                }
                 break;
         }
     }
