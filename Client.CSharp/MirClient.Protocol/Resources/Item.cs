@@ -180,4 +180,29 @@ public class Item
         Weight = 2,
         Count = count
     };
+
+    public static Item CreateByName(string name, int count = 1)
+    {
+        string n = name.Trim();
+        return n switch
+        {
+            var s when s.Contains("木剑") && !s.Contains("乌木") => CreateWoodSword(),
+            var s when s.Contains("乌木剑") => CreateEbonySword(),
+            var s when s.Contains("裁决") => CreateJudgmentMace(),
+            var s when s.Contains("布衣") => CreateClothArmor(),
+            var s when s.Contains("重型盔甲") || s.Contains("重盔") => CreateHeavyArmor(),
+            var s when s.Contains("战神盔甲") || s.Contains("战神") => CreateGodArmor(),
+            var s when s.Contains("红药") || s.Contains("金创药") => CreateRedPotion(count),
+            var s when s.Contains("蓝药") || s.Contains("魔法药") => CreateBluePotion(count),
+            var s when s.Contains("太阳水") => CreateSunPotion(count),
+            _ => new Item
+            {
+                Id = 99,
+                Name = n,
+                Type = ItemType.Misc,
+                Weight = 1,
+                Count = count
+            }
+        };
+    }
 }

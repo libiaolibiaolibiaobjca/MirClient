@@ -41,9 +41,13 @@ public static class ProtocolConsts
     public const ushort SM_STRUCK               = 56;   // 实体受击硬直与掉血
     public const ushort SM_DEATH                = 57;   // 实体死亡倒地
     public const ushort SM_SKELETON             = 58;   // 实体遗骸化
-    public const ushort SM_DISAPPEAR            = 59;   // 实体移出视口/消失
-    public const ushort SM_DROPITEM             = 512;  // 地面物品生成
-    public const ushort SM_ITEMDISAPPEAR        = 513;  // 地面物品消失/被拾取
+    public const ushort SM_DISAPPEAR            = 59;   // 实体离开视野或消失
+    public const ushort SM_DROPITEM_SUCCESS     = 600;  // 丢弃物品成功确认
+    public const ushort SM_DROPITEM_FAIL        = 601;  // 丢弃物品失败
+    public const ushort SM_ITEMSHOW             = 610;  // 地面生成物品广播 (坐标/造型/名称)
+    public const ushort SM_ITEMHIDE             = 611;  // 地面物品消失/被拾取 (RecogId)
+    public const ushort SM_DROPITEM             = 610;  // 兼容别名
+    public const ushort SM_ITEMDISAPPEAR        = 611;  // 兼容别名
     public const ushort SM_SPURN                = 510;  // 刷新怪物或NPC实体
     public const ushort SM_NOWACTOR             = 511;  // 刷新其他玩家角色实体
     public const ushort SM_BAGITEMS             = 601;  // 下发背包物品清单

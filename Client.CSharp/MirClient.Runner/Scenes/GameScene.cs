@@ -131,6 +131,15 @@ public class GameScene : IScene
         // 订阅真实 7200 游戏网关广播
         _engine.NetworkSession.OnGamePacket += HandleServerGamePacket;
         _engine.NetworkSession.OnLog += msg => _chatLogs.Add(msg);
+        _engine.NetworkSession.OnGroundItemShow += showEvent =>
+        {
+            var item = Item.CreateByName(showEvent.ItemName);
+            _groundItemManager.SpawnItem(new Vector2(showEvent.TileX, showEvent.TileY), item, showEvent.GroundId);
+        };
+        _engine.NetworkSession.OnGroundItemHide += hideEvent =>
+        {
+            _groundItemManager.RemoveById(hideEvent.GroundId);
+        };
     }
 
     public void Init()
@@ -624,6 +633,11 @@ public class GameScene : IScene
         bool isMoving = _currentAction == HumanActionType.Walk || _currentAction == HumanActionType.Run || _isRunning;
         if (isSpacePressed || isMoving)
         {
+            if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected && isSpacePressed)
+            {
+                _ = _engine.NetworkSession.SendPickupAsync((int)_playerTilePos.X, (int)_playerTilePos.Y);
+            }
+
             if (_groundItemManager.TryPickupNearest(_playerTilePos, _inv, ref _gold, out string pickupMsg))
             {
                 _chatLogs.Add($"[拾取] {pickupMsg}");
@@ -1216,6 +1230,10 @@ public class GameScene : IScene
             float dist = Vector2.Distance(_playerTilePos, hoveredItem.TilePos);
             if (dist <= 1.25f)
             {
+                if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+                {
+                    _ = _engine.NetworkSession.SendPickupAsync((int)hoveredItem.TilePos.X, (int)hoveredItem.TilePos.Y);
+                }
                 if (_groundItemManager.TryPickupNearest(_playerTilePos, _inv, ref _gold, out string pickupMsg))
                 {
                     _chatLogs.Add($"[拾取] {pickupMsg}");

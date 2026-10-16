@@ -46,21 +46,37 @@ public class GroundItemManager
     public void Clear() => _items.Clear();
 
     /// <summary>
-    /// 在指定瓦片生成金币掉落
+    /// 根据服务端指定的全局唯一 ID 移除地面物品
     /// </summary>
-    public GroundItem SpawnGold(Vector2 tilePos, int amount)
+    public bool RemoveById(long id)
     {
-        GroundItem ground = new(_nextId++, tilePos, amount);
+        int idx = _items.FindIndex(it => it.Id == id);
+        if (idx >= 0)
+        {
+            _items.RemoveAt(idx);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 在指定瓦片生成金币掉落（支持指定服务端分配的 groundId）
+    /// </summary>
+    public GroundItem SpawnGold(Vector2 tilePos, int amount, long? customId = null)
+    {
+        long id = customId ?? _nextId++;
+        GroundItem ground = new(id, tilePos, amount);
         _items.Add(ground);
         return ground;
     }
 
     /// <summary>
-    /// 在指定瓦片生成物品掉落
+    /// 在指定瓦片生成物品掉落（支持指定服务端分配的 groundId）
     /// </summary>
-    public GroundItem SpawnItem(Vector2 tilePos, Item item)
+    public GroundItem SpawnItem(Vector2 tilePos, Item item, long? customId = null)
     {
-        GroundItem ground = new(_nextId++, tilePos, item);
+        long id = customId ?? _nextId++;
+        GroundItem ground = new(id, tilePos, item);
         _items.Add(ground);
         return ground;
     }

@@ -48,6 +48,9 @@ public class NetworkSession : IDisposable
     public event Action<DefaultMessage, string>? OnGamePacket;
     public event Action<int, int, string>? OnMerchantSay;
     public event Action? OnMerchantClose;
+    public event Action<GroundItemShowEvent>? OnGroundItemShow;
+    public event Action<GroundItemHideEvent>? OnGroundItemHide;
+    public event Action<bool>? OnDropItemResult;
 
     public NetworkSession()
     {
@@ -274,6 +277,43 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 地面物品生成广播
+                case ProtocolConsts.SM_ITEMSHOW:
+                {
+                    var itemShow = GroundItemProtocolManager.ParseItemShow(e.Header, e.Payload);
+                    GroundItemProtocolManager.Instance.SyncShowItem(itemShow);
+                    OnGroundItemShow?.Invoke(itemShow);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 地面物品消失/拾取广播
+                case ProtocolConsts.SM_ITEMHIDE:
+                {
+                    var itemHide = GroundItemProtocolManager.ParseItemHide(e.Header);
+                    GroundItemProtocolManager.Instance.SyncHideItem(itemHide);
+                    OnGroundItemHide?.Invoke(itemHide);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 丢弃物品结果反馈
+                case ProtocolConsts.SM_DROPITEM_SUCCESS:
+                {
+                    Log("[物品丢弃] 成功丢弃物品到地面");
+                    OnDropItemResult?.Invoke(true);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_DROPITEM_FAIL:
+                {
+                    Log("[物品丢弃] 丢弃失败（周围无法放置或禁止丢弃）");
+                    OnDropItemResult?.Invoke(false);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -307,6 +347,24 @@ public class NetworkSession : IDisposable
     {
         var (msg, _) = NpcScriptDialogManager.CreateSelectPacket(npcRecogId, label);
         await SendGamePacketAsync(msg, EDCode.EncodeString(label));
+    }
+
+    /// <summary>
+    /// 发送拾取当前脚下地面物品数据包 (CM_PICKUP)
+    /// </summary>
+    public async Task SendPickupAsync(int tileX, int tileY)
+    {
+        var (msg, payload, _) = GroundItemProtocolManager.CreatePickupPacket(tileX, tileY);
+        await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送丢弃包裹物品到脚下数据包 (CM_DROPITEM)
+    /// </summary>
+    public async Task SendDropItemAsync(int itemMakeIndex, int dropCount, string itemName)
+    {
+        var (msg, payload, _) = GroundItemProtocolManager.CreateDropItemPacket(itemMakeIndex, dropCount, itemName);
+        await SendGamePacketAsync(msg, payload);
     }
 
     /// <summary>
