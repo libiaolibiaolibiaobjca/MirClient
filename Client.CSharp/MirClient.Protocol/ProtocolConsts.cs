@@ -29,6 +29,10 @@ public static class ProtocolConsts
     public const ushort CM_USERSELLITEM  = 1013; // 出售物品给 NPC
     public const ushort CM_USERBUYITEM   = 1014; // 从 NPC 购买物品
     public const ushort CM_USERREPAIRITEM= 1023; // NPC 修理装备
+    public const ushort CM_GROUPMODE     = 1019; // 允许/禁止组队模式开关 (Param: 1=允许, 0=禁止)
+    public const ushort CM_CREATEGROUP   = 1020; // 创建队伍并邀请首位成员
+    public const ushort CM_ADDGROUPMEMBER= 1021; // 邀请添加队伍成员
+    public const ushort CM_DELGROUPMEMBER= 1022; // 移出队员或主动退队
     public const ushort CM_IDPASSWORD    = 2001; // 账号密码登录 (LoginGate 7000)
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
@@ -88,5 +92,14 @@ public static class ProtocolConsts
     public const ushort SM_CRY                  = 102;  // 喊话频道广播
     public const ushort SM_WHISPER              = 103;  // 私聊/密语消息
     public const ushort SM_GUILDMESSAGE         = 104;  // 行会频道聊天消息
+    public const ushort SM_GROUPMODECHANGED     = 659;  // 组队模式切换通知 (Param: 1=允许, 0=禁止)
+    public const ushort SM_CREATEGROUP_OK       = 660;  // 创建队伍成功
+    public const ushort SM_CREATEGROUP_FAIL     = 661;  // 创建队伍失败 (Recog: 错误代码)
+    public const ushort SM_GROUPADDMEM_OK       = 662;  // 添加队伍成员成功
+    public const ushort SM_GROUPDELMEM_OK       = 663;  // 删除/离开队伍成功
+    public const ushort SM_GROUPADDMEM_FAIL     = 664;  // 添加队伍成员失败
+    public const ushort SM_GROUPDELMEM_FAIL     = 665;  // 删除队伍成员失败
+    public const ushort SM_GROUPCANCEL          = 666;  // 队伍解散
+    public const ushort SM_GROUPMEMBERS         = 667;  // 队伍全员名单同步 (Payload: Name1/Name2/.../)
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
 }

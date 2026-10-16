@@ -208,6 +208,25 @@ public class GameScene : IScene
         {
             _chatLogs.Add(chatEvt.FormattedText);
         };
+        _engine.NetworkSession.OnGroupMembersChanged += members =>
+        {
+            GroupManager.Instance.SyncServerMembers(members, _playerName);
+            _chatLogs.Add($"[组队更新] 当前队伍成员: {string.Join(", ", members)}");
+        };
+        _engine.NetworkSession.OnGroupModeChanged += allow =>
+        {
+            GroupManager.Instance.AllowGroup = allow;
+            _chatLogs.Add($"[组队模式] {(allow ? "已开启允许组队" : "已关闭组队模式")}");
+        };
+        _engine.NetworkSession.OnGroupCancel += () =>
+        {
+            GroupManager.Instance.LeaveGroup();
+            _chatLogs.Add("[组队] 队伍已解散！");
+        };
+        _engine.NetworkSession.OnGroupActionResult += result =>
+        {
+            _chatLogs.Add($"[组队] {result.Message}");
+        };
     }
 
     public void Init()
@@ -2482,41 +2501,70 @@ public class GameScene : IScene
                 break;
 
             case ParsedCommandType.Group:
-                if (cmd.SubAction == "leave")
+                if (_engine.NetworkSession.Step == NetworkStep.InWorld)
                 {
-                    GroupManager.Instance.LeaveGroup();
-                    _chatLogs.Add("[组队] 您已退出队伍，队伍已解散。");
+                    if (cmd.SubAction == "leave")
+                    {
+                        _ = _engine.NetworkSession.SendDelGroupMemberAsync(_playerName);
+                    }
+                    else if (cmd.SubAction == "kick")
+                    {
+                        _ = _engine.NetworkSession.SendDelGroupMemberAsync(cmd.TargetName);
+                    }
+                    else if (cmd.SubAction == "allow")
+                    {
+                        _ = _engine.NetworkSession.SendGroupModeAsync(cmd.Enabled);
+                    }
+                    else if (cmd.SubAction == "add")
+                    {
+                        if (!GroupManager.Instance.HasGroup)
+                        {
+                            _ = _engine.NetworkSession.SendCreateGroupAsync(cmd.TargetName);
+                        }
+                        else
+                        {
+                            _ = _engine.NetworkSession.SendAddGroupMemberAsync(cmd.TargetName);
+                        }
+                    }
                 }
-                else if (cmd.SubAction == "kick")
+                else
                 {
-                    if (GroupManager.Instance.RemoveMember(cmd.TargetName))
+                    if (cmd.SubAction == "leave")
                     {
-                        _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】已被移出队伍。");
+                        GroupManager.Instance.LeaveGroup();
+                        _chatLogs.Add("[组队] 您已退出队伍，队伍已解散。");
                     }
-                    else
+                    else if (cmd.SubAction == "kick")
                     {
-                        _chatLogs.Add($"[组队] 队伍中未找到队员【{cmd.TargetName}】！");
+                        if (GroupManager.Instance.RemoveMember(cmd.TargetName))
+                        {
+                            _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】已被移出队伍。");
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[组队] 队伍中未找到队员【{cmd.TargetName}】！");
+                        }
                     }
-                }
-                else if (cmd.SubAction == "allow")
-                {
-                    GroupManager.Instance.AllowGroup = cmd.Enabled;
-                    _chatLogs.Add($"[组队] {cmd.Message}");
-                }
-                else if (cmd.SubAction == "add")
-                {
-                    if (!GroupManager.Instance.HasGroup)
+                    else if (cmd.SubAction == "allow")
                     {
-                        GroupManager.Instance.CreateGroup(_playerName, CharacterJob.Warrior, _progression.Level, _hp, MaxHp, MapManager.Instance.ActiveMap.Name);
+                        GroupManager.Instance.AllowGroup = cmd.Enabled;
+                        _chatLogs.Add($"[组队] {cmd.Message}");
                     }
-                    float fakeHp = cmd.TargetJob == CharacterJob.Wizard ? 280f : (cmd.TargetJob == CharacterJob.Taoist ? 420f : 650f);
-                    if (GroupManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, fakeHp, fakeHp, MapManager.Instance.ActiveMap.Name))
+                    else if (cmd.SubAction == "add")
                     {
-                        _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob}) 已加入队伍！");
-                    }
-                    else
-                    {
-                        _chatLogs.Add($"[组队] 无法添加【{cmd.TargetName}】(可能已满员或已在队伍中)。");
+                        if (!GroupManager.Instance.HasGroup)
+                        {
+                            GroupManager.Instance.CreateGroup(_playerName, CharacterJob.Warrior, _progression.Level, _hp, MaxHp, MapManager.Instance.ActiveMap.Name);
+                        }
+                        float fakeHp = cmd.TargetJob == CharacterJob.Wizard ? 280f : (cmd.TargetJob == CharacterJob.Taoist ? 420f : 650f);
+                        if (GroupManager.Instance.AddMember(cmd.TargetName, cmd.TargetJob, cmd.Amount, fakeHp, fakeHp, MapManager.Instance.ActiveMap.Name))
+                        {
+                            _chatLogs.Add($"[组队] 队员【{cmd.TargetName}】(Lv.{cmd.Amount} {cmd.TargetJob}) 已加入队伍！");
+                        }
+                        else
+                        {
+                            _chatLogs.Add($"[组队] 无法添加【{cmd.TargetName}】(可能已满员或已在队伍中)。");
+                        }
                     }
                 }
                 break;

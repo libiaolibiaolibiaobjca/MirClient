@@ -136,6 +136,38 @@ public class GroupManager
     }
 
     /// <summary>
+    /// 从 OpenMir2 服务端同步队伍成员名单 (SM_GROUPMEMBERS = 667)
+    /// 服务端首个成员为队长
+    /// </summary>
+    public void SyncServerMembers(IReadOnlyList<string> serverMemberNames, string localPlayerName = "")
+    {
+        if (serverMemberNames == null || serverMemberNames.Count == 0)
+        {
+            _members.Clear();
+            return;
+        }
+
+        var oldDict = _members.ToDictionary(m => m.Name, StringComparer.OrdinalIgnoreCase);
+        _members.Clear();
+
+        for (int i = 0; i < serverMemberNames.Count; i++)
+        {
+            string name = serverMemberNames[i];
+            bool isLeader = (i == 0);
+
+            if (oldDict.TryGetValue(name, out var existing))
+            {
+                existing.IsLeader = isLeader;
+                _members.Add(existing);
+            }
+            else
+            {
+                _members.Add(new GroupMember(name, CharacterJob.Warrior, 1, 100f, 100f, "比奇城", isLeader));
+            }
+        }
+    }
+
+    /// <summary>
     /// 更新指定队员的实时生命值与所在地图
     /// </summary>
     public void UpdateMemberStatus(string name, float currentHp, float maxHp, string mapName)

@@ -58,6 +58,10 @@ public class NetworkSession : IDisposable
     public event Action<SpellBroadcastEvent>? OnSpellBroadcast;
     public event Action<MagicFireEvent>? OnMagicFire;
     public event Action<ChatMessageEvent>? OnChatMessage;
+    public event Action<IReadOnlyList<string>>? OnGroupMembersChanged;
+    public event Action<bool>? OnGroupModeChanged;
+    public event Action? OnGroupCancel;
+    public event Action<GroupActionResult>? OnGroupActionResult;
 
     public NetworkSession()
     {
@@ -441,6 +445,48 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 组队成员名单下发广播 (SM_GROUPMEMBERS = 667)
+                case ProtocolConsts.SM_GROUPMEMBERS:
+                {
+                    var members = GroupProtocolManager.ParseGroupMembers(e.Header, e.Payload);
+                    OnGroupMembersChanged?.Invoke(members);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 组队模式切换通知 (SM_GROUPMODECHANGED = 659)
+                case ProtocolConsts.SM_GROUPMODECHANGED:
+                {
+                    bool allowed = GroupProtocolManager.ParseGroupModeChanged(e.Header);
+                    OnGroupModeChanged?.Invoke(allowed);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 队伍解散广播 (SM_GROUPCANCEL = 666)
+                case ProtocolConsts.SM_GROUPCANCEL:
+                {
+                    Log("[组队] 队伍已解散");
+                    OnGroupCancel?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 组队操作反馈 (创建/添加/删除成功与失败)
+                case ProtocolConsts.SM_CREATEGROUP_OK:
+                case ProtocolConsts.SM_CREATEGROUP_FAIL:
+                case ProtocolConsts.SM_GROUPADDMEM_OK:
+                case ProtocolConsts.SM_GROUPADDMEM_FAIL:
+                case ProtocolConsts.SM_GROUPDELMEM_OK:
+                case ProtocolConsts.SM_GROUPDELMEM_FAIL:
+                {
+                    var actionResult = GroupProtocolManager.ParseGroupActionResult(e.Header, e.Payload, e.Header.Ident);
+                    Log($"[组队反馈] {actionResult.Message}");
+                    OnGroupActionResult?.Invoke(actionResult);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -536,6 +582,42 @@ public class NetworkSession : IDisposable
     public async Task SendSayAsync(string text, ChatChannel channel = ChatChannel.Normal, string target = "")
     {
         var (header, payload) = ChatProtocolManager.CreateSayPacket(text, channel, target);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 开关允许组队模式 (CM_GROUPMODE = 1019)
+    /// </summary>
+    public async Task SendGroupModeAsync(bool allow)
+    {
+        var (header, payload) = GroupProtocolManager.CreateGroupModePacket(allow);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 创建队伍并邀请首位成员 (CM_CREATEGROUP = 1020)
+    /// </summary>
+    public async Task SendCreateGroupAsync(string targetName)
+    {
+        var (header, payload) = GroupProtocolManager.CreateCreateGroupPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 邀请添加队伍成员 (CM_ADDGROUPMEMBER = 1021)
+    /// </summary>
+    public async Task SendAddGroupMemberAsync(string targetName)
+    {
+        var (header, payload) = GroupProtocolManager.CreateAddMemberPacket(targetName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 移出队员或主动退出队伍 (CM_DELGROUPMEMBER = 1022)
+    /// </summary>
+    public async Task SendDelGroupMemberAsync(string targetName)
+    {
+        var (header, payload) = GroupProtocolManager.CreateDelMemberPacket(targetName);
         await SendGamePacketAsync(header, payload);
     }
 
