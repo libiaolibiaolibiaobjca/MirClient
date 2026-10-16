@@ -48,9 +48,21 @@ public static class ProtocolConsts
     public const ushort SM_ITEMHIDE             = 611;  // 地面物品消失/被拾取 (RecogId)
     public const ushort SM_DROPITEM             = 610;  // 兼容别名
     public const ushort SM_ITEMDISAPPEAR        = 611;  // 兼容别名
+    public const ushort SM_FEATURECHANGED      = 41;   // 角色纸娃娃外观发生改变
     public const ushort SM_SPURN                = 510;  // 刷新怪物或NPC实体
     public const ushort SM_NOWACTOR             = 511;  // 刷新其他玩家角色实体
-    public const ushort SM_BAGITEMS             = 601;  // 下发背包物品清单
+    public const ushort SM_ADDITEM              = 200;  // 背包新增单件物品
+    public const ushort SM_BAGITEMS             = 201;  // 下发背包物品清单
+    public const ushort SM_DELITEM              = 202;  // 背包删除单件物品 (Recog=MakeIndex)
+    public const ushort SM_UPDATEITEM           = 203;  // 背包物品更新 (持久度/数量)
+    public const ushort SM_TAKEON_OK            = 615;  // 穿戴装备成功
+    public const ushort SM_TAKEON_FAIL          = 616;  // 穿戴装备失败
+    public const ushort SM_TAKEOFF_OK           = 619;  // 脱下装备成功
+    public const ushort SM_TAKEOFF_FAIL         = 620;  // 脱下装备失败
+    public const ushort SM_SENDUSEITEMS         = 621;  // 下发身上已穿戴装备列表
+    public const ushort SM_WEIGHTCHANGED        = 622;  // 负重/背包重量改变
+    public const ushort SM_EAT_OK               = 635;  // 物品使用成功
+    public const ushort SM_EAT_FAIL             = 636;  // 物品使用失败
     public const ushort SM_MERCHANTSAY          = 643;  // NPC 对话正文与脚本选项下发
     public const ushort SM_MERCHANTDLGCLOSE     = 644;  // 关闭 NPC 对话框
     public const ushort SM_SENDGOODSLIST        = 645;  // NPC 商品货架列表

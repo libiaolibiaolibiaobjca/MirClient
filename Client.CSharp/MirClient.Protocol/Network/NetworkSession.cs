@@ -51,6 +51,10 @@ public class NetworkSession : IDisposable
     public event Action<GroundItemShowEvent>? OnGroundItemShow;
     public event Action<GroundItemHideEvent>? OnGroundItemHide;
     public event Action<bool>? OnDropItemResult;
+    public event Action<EquipActionResult>? OnTakeOnResult;
+    public event Action<EquipActionResult>? OnTakeOffResult;
+    public event Action<EatActionResult>? OnEatResult;
+    public event Action<int>? OnDelBagItem;
 
     public NetworkSession()
     {
@@ -314,6 +318,48 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 装备穿戴反馈
+                case ProtocolConsts.SM_TAKEON_OK:
+                case ProtocolConsts.SM_TAKEON_FAIL:
+                {
+                    var result = InventoryProtocolManager.ParseTakeOnResponse(e.Header);
+                    Log($"[装备穿戴] {result.Message}");
+                    OnTakeOnResult?.Invoke(result);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 装备脱下反馈
+                case ProtocolConsts.SM_TAKEOFF_OK:
+                case ProtocolConsts.SM_TAKEOFF_FAIL:
+                {
+                    var result = InventoryProtocolManager.ParseTakeOffResponse(e.Header);
+                    Log($"[装备脱下] {result.Message}");
+                    OnTakeOffResult?.Invoke(result);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 物品使用反馈
+                case ProtocolConsts.SM_EAT_OK:
+                case ProtocolConsts.SM_EAT_FAIL:
+                {
+                    var result = InventoryProtocolManager.ParseEatResponse(e.Header);
+                    Log($"[物品使用] {result.Message}");
+                    OnEatResult?.Invoke(result);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 背包物品扣减或销毁
+                case ProtocolConsts.SM_DELITEM:
+                {
+                    int delMakeIndex = InventoryProtocolManager.ParseDelBagItem(e.Header);
+                    OnDelBagItem?.Invoke(delMakeIndex);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -329,6 +375,33 @@ public class NetworkSession : IDisposable
         {
             Log($"[包解析异常] {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 发送使用/消耗物品数据包 (CM_EAT)
+    /// </summary>
+    public async Task SendEatItemAsync(int itemMakeIndex, string itemName)
+    {
+        var (msg, payload, _) = InventoryProtocolManager.CreateEatPacket(itemMakeIndex, itemName);
+        await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送穿戴装备数据包 (CM_TAKEONITEM)
+    /// </summary>
+    public async Task SendTakeOnItemAsync(int itemMakeIndex, EquipSlotType slot, string itemName)
+    {
+        var (msg, payload, _) = InventoryProtocolManager.CreateTakeOnPacket(itemMakeIndex, slot, itemName);
+        await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送脱下装备数据包 (CM_TAKEOFFITEM)
+    /// </summary>
+    public async Task SendTakeOffItemAsync(int itemMakeIndex, EquipSlotType slot, string itemName)
+    {
+        var (msg, payload, _) = InventoryProtocolManager.CreateTakeOffPacket(itemMakeIndex, slot, itemName);
+        await SendGamePacketAsync(msg, payload);
     }
 
     /// <summary>

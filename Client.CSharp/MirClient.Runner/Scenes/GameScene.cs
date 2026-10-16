@@ -140,6 +140,31 @@ public class GameScene : IScene
         {
             _groundItemManager.RemoveById(hideEvent.GroundId);
         };
+        _engine.NetworkSession.OnTakeOnResult += result =>
+        {
+            if (result.Success)
+            {
+                SyncEquippedAppearance();
+            }
+        };
+        _engine.NetworkSession.OnTakeOffResult += result =>
+        {
+            if (result.Success)
+            {
+                SyncEquippedAppearance();
+            }
+        };
+        _engine.NetworkSession.OnEatResult += result =>
+        {
+            if (result.Success)
+            {
+                SoundManager.Instance.Play(SoundEffectType.UsePotion);
+            }
+        };
+        _engine.NetworkSession.OnDelBagItem += makeIndex =>
+        {
+            _inv.RemoveItemById(makeIndex);
+        };
     }
 
     public void Init()
@@ -3596,6 +3621,10 @@ public class GameScene : IScene
                             }
                             else if (item.Type == ItemType.Potion)
                             {
+                                if (_engine.NetworkSession.IsConnected)
+                                {
+                                    _ = _engine.NetworkSession.SendEatItemAsync(item.Id, item.Name);
+                                }
                                 if (_inv.UsePotion(i, out int hp, out int mp))
                                 {
                                     _hp = Math.Min(MAX_HP, _hp + hp);
@@ -3608,6 +3637,11 @@ public class GameScene : IScene
                             {
                                 // 穿戴装备
                                 string eqName = item.Name;
+                                var preferredSlot = InventoryProtocolManager.GetPreferredSlot(item);
+                                if (_engine.NetworkSession.IsConnected && preferredSlot.HasValue)
+                                {
+                                    _ = _engine.NetworkSession.SendTakeOnItemAsync(item.Id, preferredSlot.Value, eqName);
+                                }
                                 if (_inv.EquipItem(i))
                                 {
                                     SyncEquippedAppearance();
@@ -3717,6 +3751,10 @@ public class GameScene : IScene
                         if (now - _lastEquipClickTime < 0.35 && _lastEquipClickSlot == (int)slot)
                         {
                             string eqName = eq.Name;
+                            if (_engine.NetworkSession.IsConnected)
+                            {
+                                _ = _engine.NetworkSession.SendTakeOffItemAsync(eq.Id, (EquipSlotType)(int)slot, eqName);
+                            }
                             if (_inv.UnequipItem(slot))
                             {
                                 SyncEquippedAppearance();
@@ -4459,6 +4497,10 @@ public class GameScene : IScene
     {
         if (BeltManager.Instance.UseSlot(slotIndex, _inv, out int hpHeal, out int mpHeal, out string usedName))
         {
+            if (_engine.NetworkSession.IsConnected)
+            {
+                _ = _engine.NetworkSession.SendEatItemAsync(0, usedName);
+            }
             _hp = Math.Min(MAX_HP, _hp + hpHeal);
             _mp = Math.Min(MAX_MP, _mp + mpHeal);
             SoundManager.Instance.Play(SoundEffectType.UsePotion);

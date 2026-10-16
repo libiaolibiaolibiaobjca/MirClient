@@ -200,6 +200,22 @@ public class InventoryManager
         return true;
     }
 
+    /// <summary>
+    /// 根据物品流水号/ID 扣减移除背包物品 (响应 SM_DELITEM 202)
+    /// </summary>
+    public bool RemoveItemById(int makeIndex)
+    {
+        for (int i = 0; i < BAG_CAPACITY; i++)
+        {
+            if (_bag[i] != null && _bag[i]!.Id == makeIndex)
+            {
+                _bag[i] = null;
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int ItemCount => _bag.Count(i => i != null);
 
     public void ClearBag()
