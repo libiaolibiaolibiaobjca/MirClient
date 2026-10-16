@@ -40,6 +40,8 @@ public enum ParsedCommandType
     Drop,       // @drop 极品神装与大爆测试
     Mount,      // @mount 坐骑上下马与名驹切换
     Charge,     // @charge 战马冲锋破军神技
+    Internal,   // @internal 内功等级/内力/经验管理
+    Combo,      // @combo 职业连击绝学释放与经脉贯通
     Help,       // @help 指令帮助
     Unknown     // 未知指令
 }
@@ -1280,6 +1282,54 @@ public static class CommandParser
                 };
             }
 
+            case "internal":
+            case "内功":
+            case "neigong":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "info";
+                int val = 0;
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int v))
+                {
+                    val = v;
+                }
+
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Internal,
+                    SubAction = sub,
+                    Amount = val,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "lvl" or "level" or "级" => $"设置内功等级为 Lv.{val}",
+                        "force" or "内力" or "mp" => $"调整当前内力值为 {val}",
+                        "exp" or "经验" => $"增加内功经验值 +{val}",
+                        "pierce" or "冲穴" or "脉" => "打通指定经脉穴位",
+                        "full" or "满" => "内力全部拉满，穴位全通",
+                        _ => "内功系统调试状态查询"
+                    }
+                };
+            }
+
+            case "combo":
+            case "连击":
+            case "lianji":
+            {
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "cast";
+                return new ParsedCommand
+                {
+                    Type = ParsedCommandType.Combo,
+                    SubAction = sub,
+                    RawInput = input,
+                    Message = sub switch
+                    {
+                        "unlock" or "解锁" => "一键打通四大经脉，解锁四重连击绝学",
+                        "full" or "满" => "连击冷却清空且内力全部回满",
+                        _ => "施展本职业连击绝学神技 (Ctrl+D / C)"
+                    }
+                };
+            }
+
             case "help":
             case "?":
             case "帮助":
@@ -1290,6 +1340,8 @@ public static class CommandParser
                     Type = ParsedCommandType.Help,
                     RawInput = input,
                     Message = "GM调试指令一览:\n" +
+                              "  @internal [lvl/force/exp/full]- 内功等级与内力护盾调试\n" +
+                              "  @combo [cast/unlock/full]     - 释放本职业多段连击绝学 (Ctrl+D / C)\n" +
                               "  @mount [ride/down/switch 名驹] - 战马坐骑上下马与切换 (Ctrl+M / M)\n" +
                               "  @charge                       - 施展战马冲锋破军神技 (Ctrl+F)\n" +
                               "  @boss spawn/kill/status       - 世界教主召唤/处决大爆/伤害战况\n" +

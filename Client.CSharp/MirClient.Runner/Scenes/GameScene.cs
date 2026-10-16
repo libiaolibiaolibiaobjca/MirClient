@@ -404,10 +404,18 @@ public class GameScene : IScene
             {
                 TriggerCavalryCharge();
             }
+            else if (Raylib.IsKeyPressed(KeyboardKey.D))
+            {
+                TriggerComboAttack();
+            }
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.M) && !_isChatInputActive)
         {
             ToggleMount();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.C) && !_isChatInputActive)
+        {
+            TriggerComboAttack();
         }
 
         // 实时同步自身血量与地图至组队列表
@@ -528,9 +536,11 @@ public class GameScene : IScene
                 // 玩家存活时驱动 AI 决策并检测反击
                 if (_hp > 0 && ai.Update(dt, _playerTilePos, IsCellBlocked, out int dmg))
                 {
-                    _hp = Math.Max(0, _hp - dmg);
+                    var (dmgToHp, absorbed) = InternalPowerManager.Instance.AbsorbDamage(dmg);
+                    _hp = Math.Max(0, _hp - dmgToHp);
                     TriggerStruck();
-                    _chatLogs.Add($"[受到攻击] 【{entity.Name}】发动反击，对您造成 {dmg} 点物理伤害！(当前生命: {(int)_hp}/{(int)MAX_HP})");
+                    string absorbMsg = absorbed > 0 ? $" [内力护体化解 {absorbed}点]" : "";
+                    _chatLogs.Add($"[受到攻击] 【{entity.Name}】发动反击，造成 {dmg} 点伤害{absorbMsg}！(当前生命: {(int)_hp}/{(int)MAX_HP} 内力: {InternalPowerManager.Instance.CurrentForce})");
 
                     if (_hp <= 0)
                     {
@@ -643,8 +653,13 @@ public class GameScene : IScene
                     {
                         _skillFx.SpawnFireSword(_playerTilePos, 0);
                     }
-                    _hp = Math.Max(0, _hp - skill.Damage);
+                    var (dmgToHp, absorbed) = InternalPowerManager.Instance.AbsorbDamage(skill.Damage);
+                    _hp = Math.Max(0, _hp - dmgToHp);
                     TriggerStruck();
+                    if (absorbed > 0)
+                    {
+                        _chatLogs.Add($"[内力护体] 浑厚真气激荡，化解世界Boss轰击 {absorbed} 点伤害！");
+                    }
                     if (_hp <= 0)
                     {
                         TriggerPlayerDeath($"遭到世界Boss【{WorldBossManager.Instance.BossName}】绝技轰杀");
@@ -661,6 +676,7 @@ public class GameScene : IScene
         _skillFx.Update(dt);
         _skillCd.Update(dt);
         MountManager.Instance.Update(dt);
+        InternalPowerManager.Instance.Update(dt);
 
         // 检测玩家是否踏入空间传送门触发范围 (1.25 格容差)
         if (MapManager.Instance.CheckGateway(MapManager.Instance.ActiveMapId, _playerTilePos, out var hitGw))
@@ -1531,6 +1547,15 @@ public class GameScene : IScene
             _chatLogs.Add($"[升级] ★★★ 恭喜侠士！境界突破升至【{_progression.Level}级】！生命与魔法上限增长，全状态恢复满盈！ ★★★");
         }
 
+        // 击杀历练：修炼内功心法，累积内功经验
+        var (internalLeveled, internalMsg) = InternalPowerManager.Instance.AddExp(expGain / 2);
+        _chatLogs.Add($"[内功] {internalMsg}");
+        if (internalLeveled)
+        {
+            _skillFx.SpawnLevelUp(_playerTilePos);
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        }
+
         HandleMonsterLoot(target);
     }
 
@@ -1840,6 +1865,9 @@ public class GameScene : IScene
 
         // 2.6 灵兽战骑状态与马术冲刺破军 HUD 标牌
         RenderMountBadge(boardX, boardY);
+
+        // 2.7 内功经络与连击绝学 HUD 标牌
+        RenderInternalAndComboBadge(boardX, boardY);
 
         // 3. 底板中央聊天视窗 (深黑曜石遮罩覆盖原生刺眼白块，文字清晰雅致)
         RenderChatBox(boardX, boardY);
@@ -2853,6 +2881,71 @@ public class GameScene : IScene
             case ParsedCommandType.Charge:
             {
                 TriggerCavalryCharge();
+                break;
+            }
+
+            case ParsedCommandType.Internal:
+            {
+                var mgr = InternalPowerManager.Instance;
+                if (cmd.SubAction == "lvl" && cmd.Amount > 0)
+                {
+                    mgr.InternalLevel = Math.Clamp(cmd.Amount, 1, InternalPowerManager.MaxLevel);
+                    mgr.CurrentForce = mgr.MaxForce;
+                    _chatLogs.Add($"[内功GM] 内功境界已调整为 Lv.{mgr.InternalLevel} (内力上限: {mgr.MaxForce})");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "force" && cmd.Amount >= 0)
+                {
+                    mgr.CurrentForce = Math.Min(cmd.Amount, mgr.MaxForce);
+                    _chatLogs.Add($"[内功GM] 当前内力值已调整为: {mgr.CurrentForce}/{mgr.MaxForce}");
+                }
+                else if (cmd.SubAction == "exp" && cmd.Amount > 0)
+                {
+                    var (_, expMsg) = mgr.AddExp(cmd.Amount);
+                    _chatLogs.Add($"[内功GM] {expMsg}");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "pierce")
+                {
+                    MeridianType m = mgr.Meridians[MeridianType.Du] < 5 ? MeridianType.Du
+                                   : mgr.Meridians[MeridianType.Ren] < 5 ? MeridianType.Ren
+                                   : MeridianType.Dai;
+                    var (_, pMsg) = mgr.PierceAcupoint(m);
+                    _chatLogs.Add($"[内功GM] {pMsg}");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "full")
+                {
+                    mgr.UnlockAllMeridians();
+                    _chatLogs.Add("[内功GM] 奇经八脉全通大圆满！四段连击绝学全部解锁，内力拉满！");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    _chatLogs.Add($"[内功系统] 当前内功: Lv.{mgr.InternalLevel} | 内力: {mgr.CurrentForce}/{mgr.MaxForce} | 抵扣吸收率: {mgr.AbsorptionRatio:P0} | 连击解锁: {mgr.UnlockedComboStages}/4 重");
+                }
+                break;
+            }
+
+            case ParsedCommandType.Combo:
+            {
+                if (cmd.SubAction == "unlock")
+                {
+                    InternalPowerManager.Instance.UnlockAllMeridians();
+                    _chatLogs.Add("[连击GM] 奇经八脉全部贯通！四重连击绝学解锁就绪！");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else if (cmd.SubAction == "full")
+                {
+                    InternalPowerManager.Instance.ComboCooldownTimer = 0f;
+                    InternalPowerManager.Instance.CurrentForce = InternalPowerManager.Instance.MaxForce;
+                    _chatLogs.Add("[连击GM] 连击冷却已重置，内力已满盈！");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                else
+                {
+                    TriggerComboAttack();
+                }
                 break;
             }
 
@@ -5520,6 +5613,123 @@ public class GameScene : IScene
                 mount.SwitchMount(next);
                 _chatLogs.Add($"[坐骑系统] 切换出战灵兽: 【{mount.CurrentMountDef.Name}】 移速加成+{mount.CurrentMountDef.SpeedBonus:P0}");
                 SoundManager.Instance.Play(SoundEffectType.LevelUp);
+            }
+        }
+    }
+
+    private void TriggerComboAttack()
+    {
+        var mgr = InternalPowerManager.Instance;
+        MapEntity? target = null;
+        float minDist = 3.8f;
+        lock (_entities)
+        {
+            foreach (var ent in _entities)
+            {
+                if (ent.Type == EntityType.Monster && !ent.IsDead)
+                {
+                    float d = Vector2.Distance(_playerTilePos, ent.TilePos);
+                    if (d < minDist)
+                    {
+                        minDist = d;
+                        target = ent;
+                    }
+                }
+            }
+        }
+
+        bool hasBoss = WorldBossManager.Instance.IsAlive && Vector2.Distance(_playerTilePos, WorldBossManager.Instance.TilePos) < 4.0f;
+        bool hasTarget = target != null || hasBoss;
+
+        var (success, msg, hits, totalDmg) = mgr.CastCombo(_playerJob, 90, hasTarget);
+        if (!success)
+        {
+            _chatLogs.Add($"[连击绝学] {msg}");
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        for (int i = 0; i < hits.Count; i++)
+        {
+            var hit = hits[i];
+            if (target != null)
+            {
+                ApplyMonsterDamage(target, hit.Damage, $"连招第{hit.Stage}重·{hit.SkillName}");
+            }
+            if (hasBoss)
+            {
+                WorldBossManager.Instance.ApplyDamage(_playerName, hit.Damage, out _, out _);
+            }
+        }
+
+        _skillFx.SpawnFireSword(_playerTilePos, _direction);
+        if (target != null)
+        {
+            _skillFx.SpawnThunder(target.TilePos);
+        }
+        SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+        _chatLogs.Add($"[连击绝学] ★★★ {msg} ★★★");
+    }
+
+    private void RenderInternalAndComboBadge(int boardX, int boardY)
+    {
+        var mgr = InternalPowerManager.Instance;
+        int badgeX = boardX + 116;
+        int badgeY = boardY - 30;
+        int badgeW = 104;
+        int badgeH = 24;
+
+        Rectangle badgeRec = new(badgeX, badgeY, badgeW, badgeH);
+        Raylib.DrawRectangleRec(badgeRec, new Color((byte)14, (byte)22, (byte)16, (byte)220));
+
+        // 连击就绪时呈现青绿色呼吸外框
+        Color borderCol;
+        if (mgr.CanCastCombo)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 8f);
+            borderCol = new Color((byte)80, (byte)240, (byte)120, (byte)(255 * pulse));
+        }
+        else
+        {
+            borderCol = Color.DarkGray;
+        }
+        Raylib.DrawRectangleLines(badgeX, badgeY, badgeW, badgeH, borderCol);
+
+        // 内力值与等级
+        string forceText = $"[内]Lv.{mgr.InternalLevel} {mgr.CurrentForce}/{mgr.MaxForce}";
+        FontManager.DrawTextWithShadow(forceText, badgeX + 4, badgeY + 2, 10, new Color((byte)100, (byte)230, (byte)140, (byte)255), Color.Black);
+
+        // 连击状态
+        if (mgr.CanCastCombo)
+        {
+            FontManager.DrawText("[连击就绪]Ctrl+D/C", badgeX + 4, badgeY + 12, 9, Color.Gold);
+        }
+        else if (mgr.ComboCooldownTimer > 0f)
+        {
+            FontManager.DrawText($"调息 {mgr.ComboCooldownTimer:F1}s", badgeX + 4, badgeY + 12, 9, Color.Red);
+        }
+        else
+        {
+            FontManager.DrawText("内力蓄能中", badgeX + 4, badgeY + 12, 9, Color.DarkGray);
+        }
+
+        Vector2 mPos = Raylib.GetMousePosition();
+        if (Raylib.CheckCollisionPointRec(mPos, badgeRec))
+        {
+            Raylib.DrawRectangleLinesEx(badgeRec, 1, Color.White);
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                TriggerComboAttack();
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+            {
+                // 右键打通下一处经脉大穴
+                MeridianType m = mgr.Meridians[MeridianType.Du] < 5 ? MeridianType.Du
+                               : mgr.Meridians[MeridianType.Ren] < 5 ? MeridianType.Ren
+                               : MeridianType.Dai;
+                var (s, pMsg) = mgr.PierceAcupoint(m);
+                _chatLogs.Add($"[经络冲穴] {pMsg}");
+                if (s) SoundManager.Instance.Play(SoundEffectType.LevelUp);
             }
         }
     }
