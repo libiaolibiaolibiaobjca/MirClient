@@ -120,6 +120,17 @@ public class NetworkSession : IDisposable
     public event Action<string>? OnMerchantDetailGoodsReceived;
     public event Action? OnItemCheckStateReceived;
 
+    // =========================================================================
+    // OpenMir2 行会外交与二级密码安全锁事件通知
+    // =========================================================================
+    public event Action? OnGuildAllySuccess;
+    public event Action<int, string>? OnGuildAllyFailed;
+    public event Action? OnGuildBreakAllySuccess;
+    public event Action? OnGuildBreakAllyFailed;
+    public event Action<bool>? OnPasswordStatusReceived;
+    public event Action? OnNeedPasswordPrompt;
+
+
 
     public NetworkSession()
     {
@@ -1096,6 +1107,63 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 行会结盟成功 (SM_GUILDMAKEALLY_OK = 768)
+                case ProtocolConsts.SM_GUILDMAKEALLY_OK:
+                {
+                    Log("[行会外交] 双方行会联盟缔结成功！");
+                    OnGuildAllySuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 行会结盟失败 (SM_GUILDMAKEALLY_FAIL = 769)
+                case ProtocolConsts.SM_GUILDMAKEALLY_FAIL:
+                {
+                    var (code, desc) = GuildDiplomacyAndSecurityProtocolManager.ParseGuildAllyFail(e.Header);
+                    Log($"[行会外交] 结盟失败: {desc} (代码: {code})");
+                    OnGuildAllyFailed?.Invoke(code, desc);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 解除同盟成功 (SM_GUILDBREAKALLY_OK = 770)
+                case ProtocolConsts.SM_GUILDBREAKALLY_OK:
+                {
+                    Log("[行会外交] 已成功解除行会同盟关系！");
+                    OnGuildBreakAllySuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 解除同盟失败 (SM_GUILDBREAKALLY_FAIL = 771)
+                case ProtocolConsts.SM_GUILDBREAKALLY_FAIL:
+                {
+                    Log("[行会外交] 解除行会同盟失败！");
+                    OnGuildBreakAllyFailed?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 二级密码安全锁状态 (SM_PASSWORDSTATUS = 8002)
+                case ProtocolConsts.SM_PASSWORDSTATUS:
+                {
+                    bool isLocked = GuildDiplomacyAndSecurityProtocolManager.ParsePasswordStatus(e.Header);
+                    Log($"[二级密码] 当前仓库安全锁状态: {(isLocked ? "已上锁" : "已开锁")}");
+                    OnPasswordStatusReceived?.Invoke(isLocked);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 提示输入二级密码 (SM_NEEDPASSWORD = 8003)
+                case ProtocolConsts.SM_NEEDPASSWORD:
+                {
+                    Log("[二级密码] 仓库已加锁，需要输入二级安全密码解锁");
+                    OnNeedPasswordPrompt?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+
 
 
                 // 阶段 3: 游戏世界广播数据
@@ -1651,6 +1719,41 @@ public class NetworkSession : IDisposable
         var (header, payload) = MerchantEconomyProtocolManager.CreateQueryUserNamePacket(actorId);
         await SendGamePacketAsync(header, payload);
     }
+
+    // =========================================================================
+    // OpenMir2 行会外交与二级密码发包 API
+    // =========================================================================
+
+    public async Task SendGuildAllyAsync()
+    {
+        var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateGuildAllyPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendGuildBreakAllyAsync(string targetGuildName)
+    {
+        var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateGuildBreakAllyPacket(targetGuildName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendVerifyPasswordAsync(string password)
+    {
+        var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateVerifyPasswordPacket(password);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendChangePasswordAsync(string oldPassword, string newPassword)
+    {
+        var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateChangePasswordPacket(oldPassword, newPassword);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendSetPasswordAsync(string password)
+    {
+        var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateSetPasswordPacket(password);
+        await SendGamePacketAsync(header, payload);
+    }
+
 
 
 

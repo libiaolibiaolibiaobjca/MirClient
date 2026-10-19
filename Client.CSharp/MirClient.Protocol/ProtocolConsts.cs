@@ -86,6 +86,18 @@ public static class ProtocolConsts
     public const ushort CM_GUILDUPDATERANKINFO = 1041; // 更新行会职务头衔设置
     public const ushort CM_GUILDWAR      = 1042; // 申请开启沙巴克攻城战 / 行会宣战请求 (Payload: 目标行会名)
     public const ushort CM_CASTLEWITHDRAWGOLD = 1043; // 沙城城主提取城池税金 (Recog: 提款金额)
+    public const ushort CM_GUILDALLY             = 1044; // 发起行会结盟请求
+    public const ushort CM_GUILDBREAKALLY        = 1045; // 解除行会同盟请求 (Payload: 目标行会名)
+    public const ushort SM_GUILDMAKEALLY_OK      = 768;  // 行会结盟成功通知
+    public const ushort SM_GUILDMAKEALLY_FAIL    = 769;  // 行会结盟失败反馈 (Recog: 错误码)
+    public const ushort SM_GUILDBREAKALLY_OK     = 770;  // 解除行会同盟成功通知
+    public const ushort SM_GUILDBREAKALLY_FAIL   = 771;  // 解除行会同盟失败反馈
+    public const ushort CM_PASSWORD              = 2001; // 验证/解锁二级密码 (Series: 1, Payload: 密码)
+    public const ushort CM_CHGPASSWORD           = 2002; // 修改二级密码 (Series: 1, Payload: 密码)
+    public const ushort CM_SETPASSWORD           = 2004; // 设置二级密码 (Series: 1, Payload: 密码)
+    public const ushort SM_PASSWORDSTATUS        = 8002; // 下发二级密码安全锁状态 (Recog: 1=已上锁, 0=已解锁)
+    public const ushort SM_NEEDPASSWORD          = 8003; // 提示用户需要输入二级密码开锁
+
     public const ushort CM_ADDFRIEND     = 1050; // 申请添加好友 (Payload: 目标角色名)
     public const ushort CM_DELFRIEND     = 1051; // 请求删除好友 (Payload: 好友角色名)
     public const ushort CM_QUERYFRIENDLIST = 1052; // 请求查询好友名册
