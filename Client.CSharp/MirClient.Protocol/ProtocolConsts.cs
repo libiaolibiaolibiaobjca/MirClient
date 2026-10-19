@@ -97,6 +97,16 @@ public static class ProtocolConsts
     public const ushort CM_SETPASSWORD           = 2004; // 设置二级密码 (Series: 1, Payload: 密码)
     public const ushort SM_PASSWORDSTATUS        = 8002; // 下发二级密码安全锁状态 (Recog: 1=已上锁, 0=已解锁)
     public const ushort SM_NEEDPASSWORD          = 8003; // 提示用户需要输入二级密码开锁
+    public const ushort CM_WANTMINIMAP           = 1033; // 客户端请求雷达小地图
+    public const ushort SM_READMINIMAP_OK        = 710;  // 下发小地图索引 (Param: MinMap编号)
+    public const ushort SM_READMINIMAP_FAIL      = 711;  // 无小地图响应
+    public const ushort CM_QUERYVAL              = 1065; // 响应NPC输入框变量 (Recog: NPC Id, Payload: 输入值)
+    public const ushort CM_MAGICKEYCHANGE        = 1008; // 技能快捷键设置变更 (Param: 技能ID, Tag: 键位 0~11)
+    public const ushort CM_QUERYUSERSET          = 3040; // 查询/同步客户端游戏性环境设置
+    public const ushort CM_ADJUST_BONUS          = 1043; // 角色自定义加点分配 (Param: 属性类型, Tag: 点数)
+    public const ushort CM_LOGINNOTICEOK         = 1018; // 客户端确认已阅读登录公告
+    public const ushort CM_CHECKTIME             = 15999;// 客户端网络心跳与精准时间戳校准同步 (Recog: 客户端Tick)
+
 
     public const ushort CM_ADDFRIEND     = 1050; // 申请添加好友 (Payload: 目标角色名)
     public const ushort CM_DELFRIEND     = 1051; // 请求删除好友 (Payload: 好友角色名)

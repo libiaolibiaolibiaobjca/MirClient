@@ -130,6 +130,13 @@ public class NetworkSession : IDisposable
     public event Action<bool>? OnPasswordStatusReceived;
     public event Action? OnNeedPasswordPrompt;
 
+    // =========================================================================
+    // OpenMir2 小地图雷达与系统设置事件通知
+    // =========================================================================
+    public event Action<int>? OnMinimapReceived;
+    public event Action? OnMinimapUnavailable;
+
+
 
 
     public NetworkSession()
@@ -1163,6 +1170,26 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 小地图资源编号下发 (SM_READMINIMAP_OK = 710)
+                case ProtocolConsts.SM_READMINIMAP_OK:
+                {
+                    int minMapId = MinimapAndSystemProtocolManager.ParseMinimapResponse(e.Header);
+                    Log($"[小地图雷达] 获取当前地图雷达索引: {minMapId}");
+                    OnMinimapReceived?.Invoke(minMapId);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 当前地图无小地图 (SM_READMINIMAP_FAIL = 711)
+                case ProtocolConsts.SM_READMINIMAP_FAIL:
+                {
+                    Log("[小地图雷达] 当前地图暂无小地图数据");
+                    OnMinimapUnavailable?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+
 
 
 
@@ -1753,6 +1780,53 @@ public class NetworkSession : IDisposable
         var (header, payload) = GuildDiplomacyAndSecurityProtocolManager.CreateSetPasswordPacket(password);
         await SendGamePacketAsync(header, payload);
     }
+
+    // =========================================================================
+    // OpenMir2 小地图雷达与系统设置发包 API
+    // =========================================================================
+
+    public async Task SendWantMinimapAsync()
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateWantMinimapPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryValueResponseAsync(int npcId, string value)
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateQueryValueResponsePacket(npcId, value);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendMagicKeyChangeAsync(ushort magicId, byte keySlot)
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateMagicKeyChangePacket(magicId, keySlot);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryUserSetAsync()
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateQueryUserSetPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendAdjustBonusAsync(byte bonusType, ushort count)
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateAdjustBonusPacket(bonusType, count);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendLoginNoticeOkAsync()
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateLoginNoticeOkPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendCheckTimeAsync(int clientTick)
+    {
+        var (header, payload) = MinimapAndSystemProtocolManager.CreateCheckTimePacket(clientTick);
+        await SendGamePacketAsync(header, payload);
+    }
+
 
 
 
