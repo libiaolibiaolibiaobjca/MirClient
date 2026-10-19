@@ -112,6 +112,15 @@ public class NetworkSession : IDisposable
     public event Action<ClientDealOffInfo>? OnDealOffQueryDealReceived;
     public event Action? OnDealOffBuySuccess;
 
+    // =========================================================================
+    // OpenMir2 NPC 交互经济与商人交易辅助事件通知
+    // =========================================================================
+    public event Action<int>? OnMerchantBuyPriceReceived;
+    public event Action<int>? OnMerchantRepairCostReceived;
+    public event Action<string>? OnMerchantDetailGoodsReceived;
+    public event Action? OnItemCheckStateReceived;
+
+
     public NetworkSession()
     {
         _conn.OnPacketReceived += HandlePacket;
@@ -1051,6 +1060,43 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // 商人收购估价下发 (SM_SENDBUYPRICE = 647)
+                case ProtocolConsts.SM_SENDBUYPRICE:
+                {
+                    int price = MerchantEconomyProtocolManager.ParseBuyPriceResponse(e.Header);
+                    Log($"[商人收购估价] 该物品商人出价: {price} 金币");
+                    OnMerchantBuyPriceReceived?.Invoke(price);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 铁匠铺装备修理费用下发 (SM_SENDREPAIRCOST = 671)
+                case ProtocolConsts.SM_SENDREPAIRCOST:
+                {
+                    int cost = MerchantEconomyProtocolManager.ParseRepairCostResponse(e.Header);
+                    Log($"[装备修理估价] 修理费用: {cost} 金币");
+                    OnMerchantRepairCostReceived?.Invoke(cost);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 货架商品极品明细下发 (SM_SENDDETAILGOODSLIST = 652)
+                case ProtocolConsts.SM_SENDDETAILGOODSLIST:
+                {
+                    OnMerchantDetailGoodsReceived?.Invoke(e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 装备持久与有效性核验返回 (SM_CHACKITEM = 9064)
+                case ProtocolConsts.SM_CHACKITEM:
+                {
+                    OnItemCheckStateReceived?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+
 
                 // 阶段 3: 游戏世界广播数据
                 default:
@@ -1535,6 +1581,77 @@ public class NetworkSession : IDisposable
         var (header, payload) = CombatActionProtocolManager.CreateCombatSkillPacket(skillType, targetX, targetY, dir);
         await SendGamePacketAsync(header, payload);
     }
+
+    // =========================================================================
+    // OpenMir2 NPC 交互经济与辅助功能发包 API
+    // =========================================================================
+
+    public async Task SendQuerySellPriceAsync(int merchantActorId, int makeIndex, string itemName)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateQuerySellPricePacket(merchantActorId, makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryRepairCostAsync(int merchantActorId, int makeIndex, string itemName)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateQueryRepairCostPacket(merchantActorId, makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendGetDetailItemAsync(int merchantActorId, int menuIndex, string itemName)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateGetDetailItemPacket(merchantActorId, menuIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendDropGoldAsync(int amount)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateDropGoldPacket(amount);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendMakeDrugAsync(int merchantActorId, string itemName)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateMakeDrugPacket(merchantActorId, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendCheckItemAsync()
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateCheckItemPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendOpenDoorAsync(int doorId, int x, int y)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateOpenDoorPacket(doorId, x, y);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendSoftCloseDoorAsync(int doorId, int x, int y)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateSoftCloseDoorPacket(doorId, x, y);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryBagItemsAsync()
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateQueryBagItemsPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryUserStateAsync()
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateQueryUserStatePacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendQueryUserNameAsync(int actorId)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateQueryUserNamePacket(actorId);
+        await SendGamePacketAsync(header, payload);
+    }
+
 
 
 

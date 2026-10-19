@@ -46,9 +46,25 @@ public static class ProtocolConsts
     public const ushort CM_BUTCH         = 1007; // 挖肉/搜寻
     public const ushort CM_CLICKNPC      = 1010; // 点击 NPC 对话
     public const ushort CM_MERCHANTDLGSELECT = 1011; // 选择 NPC 对话脚本标签
-    public const ushort CM_USERSELLITEM  = 1013; // 出售物品给 NPC
-    public const ushort CM_USERBUYITEM   = 1014; // 从 NPC 购买物品
-    public const ushort CM_USERREPAIRITEM= 1023; // NPC 修理装备
+    public const ushort CM_QUERYUSERNAME            = 80;   // 查询角色名称
+    public const ushort CM_QUERYBAGITEMS             = 81;   // 查询/刷新背包名册
+    public const ushort CM_QUERYUSERSTATE            = 82;   // 查询角色属性与状态
+    public const ushort CM_OPENDOOR                  = 1002; // 推门开启
+    public const ushort CM_SOFTCLOSE                 = 1009; // 关门动作
+    public const ushort CM_USERSELLITEM              = 1013; // 出售物品给 NPC
+    public const ushort CM_USERBUYITEM               = 1014; // 从 NPC 购买物品
+    public const ushort CM_MERCHANTQUERYSELLPRICE    = 1012; // 向商人询问背包物品收购价
+    public const ushort SM_SENDBUYPRICE              = 647;  // 商人返回收购估价金币数
+    public const ushort CM_USERGETDETAILITEM         = 1015; // 查询商品极品详细属性
+    public const ushort SM_SENDDETAILGOODSLIST       = 652;  // 下发商品极品明细
+    public const ushort CM_DROPGOLD                  = 1016; // 丢弃金币至地面
+    public const ushort CM_USERREPAIRITEM            = 1023; // NPC 修理装备
+    public const ushort CM_MERCHANTQUERYREPAIRCOST   = 1024; // 向铁匠铺商人询问修理费用
+    public const ushort SM_SENDREPAIRCOST            = 671;  // 铁匠铺下发维修费用
+    public const ushort CM_USERMAKEDRUGITEM          = 1034; // 药店老板处药剂合成
+    public const ushort CM_CHACKITEM                 = 9063; // 装备持久与有效性核验
+    public const ushort SM_CHACKITEM                 = 9064; // 服务端返回装备核验状态
+
     public const ushort CM_GROUPMODE     = 1019; // 允许/禁止组队模式开关 (Param: 1=允许, 0=禁止)
     public const ushort CM_CREATEGROUP   = 1020; // 创建队伍并邀请首位成员
     public const ushort CM_ADDGROUPMEMBER= 1021; // 邀请添加队伍成员
