@@ -1505,6 +1505,38 @@ public class NetworkSession : IDisposable
         await SendGamePacketAsync(header, payload);
     }
 
+    // =========================================================================
+    // OpenMir2 动作身法与战士高级打击发包 API
+    // =========================================================================
+
+    /// <summary>
+    /// 发送打坐蹲下休息请求 (CM_SITDOWN = 3012)
+    /// </summary>
+    public async Task SendSitDownAsync(int x, int y, int dir)
+    {
+        var (header, payload) = CombatActionProtocolManager.CreateSitDownPacket(x, y, dir);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送战马奔跑冲刺请求 (CM_HORSERUN = 3035)
+    /// </summary>
+    public async Task SendHorseRunAsync(int targetX, int targetY, int dir)
+    {
+        var (header, payload) = CombatActionProtocolManager.CreateHorseRunPacket(targetX, targetY, dir);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送战士打击动作请求 (攻杀/刺杀/半月/烈火/开天等)
+    /// </summary>
+    public async Task SendCombatSkillHitAsync(CombatSkillType skillType, int targetX, int targetY, int dir)
+    {
+        var (header, payload) = CombatActionProtocolManager.CreateCombatSkillPacket(skillType, targetX, targetY, dir);
+        await SendGamePacketAsync(header, payload);
+    }
+
+
 
     /// <summary>
     /// 在游戏世界中向 7200 网关发送行为数据包

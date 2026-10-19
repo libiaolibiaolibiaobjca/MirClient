@@ -18,6 +18,26 @@ public static class ProtocolConsts
     public const ushort CM_SPELL         = 3017; // 角色主动施放技能法术
     public const ushort CM_SAY           = 1007; // 玩家发言广播 (经典网关兼容)
     public const ushort CM_SAY_OPENMIR2  = 3030; // 玩家发言广播 (OpenMir2 标准命令)
+
+    // =========================================================================
+    // OpenMir2 原生动作与战士高级打击指令 (3010 ~ 3038)
+    // 严格 1:1 对齐 OpenMir2/src/OpenMir2/Messages.cs
+    // =========================================================================
+    public const ushort CM_TURN_OPENMIR2     = 3010; // 原地转身
+    public const ushort CM_WALK_OPENMIR2     = 3011; // 走步 (单格)
+    public const ushort CM_SITDOWN           = 3012; // 打坐蹲下休息
+    public const ushort CM_RUN_OPENMIR2      = 3013; // 跑步 (2格)
+    public const ushort CM_HIT_OPENMIR2      = 3014; // 普通物理攻击
+    public const ushort CM_HEAVYHIT          = 3015; // 攻杀剑术 (重击)
+    public const ushort CM_BIGHIT            = 3016; // 刺杀剑术 (破防刺杀)
+    public const ushort CM_POWERHIT          = 3018; // 半月弯刀 (弧形剑气横扫)
+    public const ushort CM_LONGHIT           = 3019; // 长距打击
+    public const ushort CM_WIDEHIT           = 3024; // 宽范围打击
+    public const ushort CM_FIREHIT           = 3025; // 烈火剑法 (火焰爆发附加攻击)
+    public const ushort CM_HORSERUN          = 3035; // 战马奔跑 (高速冲刺跨格)
+    public const ushort CM_CRSHIT            = 3036; // 开天斩 / 巨刃重斩
+    public const ushort CM_TWINHIT           = 3038; // 双龙斩 / 双刃打击
+
     public const ushort CM_DROPITEM      = 1000; // 丢弃物品
     public const ushort CM_PICKUP        = 1001; // 拾取地面物品
     public const ushort CM_TAKEONITEM    = 1003; // 穿戴装备
