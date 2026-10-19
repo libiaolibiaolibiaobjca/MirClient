@@ -38,10 +38,11 @@ public class NetworkSession : IDisposable
     public int CharacterHair { get; private set; } = 1;  // 1: 短发
 
     // 网关端点
-    public string SelChrHost { get; private set; } = "192.168.0.103";
+    public string SelChrHost { get; private set; } = "";
     public int SelChrPort { get; private set; } = 7100;
-    public string GameGateHost { get; private set; } = "192.168.0.103";
+    public string GameGateHost { get; private set; } = "";
     public int GameGatePort { get; private set; } = 7200;
+    private string _currentLoginHost = "127.0.0.1";
 
     // 消息通知事件
     public event Action<string>? OnLog;
@@ -174,6 +175,7 @@ public class NetworkSession : IDisposable
     /// </summary>
     public async Task<bool> StartLoginPipelineAsync(string host, int port, string account, string password)
     {
+        _currentLoginHost = host;
         Account = account;
         Password = password;
 
@@ -192,8 +194,8 @@ public class NetworkSession : IDisposable
             await _conn.SendGatePacketAsync(loginMsg, loginPayload);
             Log("[网络 1/3] 已发送账号密码验证请求...");
 
-            // 等待阶段 1 完成 (超时 4 秒)
-            using var cts1 = new CancellationTokenSource(4000);
+            // 等待阶段 1 完成 (超时 12 秒以容纳踢下线重试)
+            using var cts1 = new CancellationTokenSource(12000);
             cts1.Token.Register(() => _stepTcs.TrySetResult(false));
             bool step1Ok = await _stepTcs.Task;
             _conn.Disconnect();
@@ -218,7 +220,7 @@ public class NetworkSession : IDisposable
             await _conn.SendGatePacketAsync(queryMsg, queryPayload);
             Log("[网络 2/3] 已发送角色查询请求...");
 
-            using var cts2 = new CancellationTokenSource(4000);
+            using var cts2 = new CancellationTokenSource(8000);
             cts2.Token.Register(() => _stepTcs.TrySetResult(false));
             bool step2Ok = await _stepTcs.Task;
             _conn.Disconnect();
@@ -256,15 +258,35 @@ public class NetworkSession : IDisposable
 
     private async void HandlePacket(object? sender, PacketReceivedEventArgs e)
     {
+        Log($"[网络收到下行] Ident={e.Header.Ident}, Recog={e.Header.Recog}, Param={e.Header.Param}, Payload={e.Payload}");
         try
         {
             switch (e.Header.Ident)
             {
+                // 阶段 1: 密码验证失败或账号在线被踢下线
+                case ProtocolConsts.SM_PASSWD_FAIL:
+                {
+                    if (e.Header.Recog == -3)
+                    {
+                        Log("[登录] 检测到账号此前在线，服务端已强制踢下线，正在自动重新认证...");
+                        await Task.Delay(600);
+                        DefaultMessage loginMsg = new(ProtocolConsts.CM_IDPASSWORD, 0, 0, 0, 0);
+                        string loginPayload = EDCode.EncodeString($"{Account}/{Password}");
+                        await _conn.SendGatePacketAsync(loginMsg, loginPayload);
+                        break;
+                    }
+                    Log($"[登录失败] 密码错误或状态异常 (Recog={e.Header.Recog})");
+                    _stepTcs?.TrySetResult(false);
+                    break;
+                }
+
                 // 阶段 1: 密码验证成功，请求选服
                 case ProtocolConsts.SM_PASSOK_SELECTSERVER:
                 {
                     string decodedBody = EDCode.DecodeText(e.Payload);
-                    string serverName = decodedBody.Split('/')[0];
+                    string serverName = decodedBody.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                    if (string.IsNullOrWhiteSpace(serverName))
+                        serverName = "测试一区";
                     Log($"[登录] 密码验证成功，选择服务器: {serverName}");
 
                     DefaultMessage selSvrMsg = new(ProtocolConsts.CM_SELECTSERVER, 0, 0, 0, 0);
@@ -272,14 +294,18 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
-                // 阶段 1 响应: 获得 SelChrGate 7100 端口与 Certification
+                // 阶段 1 响应: 获得 SelChrGate 7100 端口与 Certification (SM_SELECTSERVER_OK 或 SM_QUERYCHR)
+                case ProtocolConsts.SM_SELECTSERVER_OK:
                 case ProtocolConsts.SM_QUERYCHR when Step == NetworkStep.ConnectingLoginGate:
                 {
                     string decoded = EDCode.DecodeText(e.Payload);
-                    var parts = decoded.Split('/');
+                    var parts = decoded.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length >= 3)
                     {
-                        SelChrHost = parts[0];
+                        string sHost = parts[0];
+                        if ((sHost == "127.0.0.1" || sHost == "0.0.0.0" || sHost.StartsWith("172.") || sHost.StartsWith("10.")) && !string.IsNullOrEmpty(_currentLoginHost))
+                            sHost = _currentLoginHost;
+                        SelChrHost = sHost;
                         SelChrPort = int.TryParse(parts[1], out int p) ? p : 7100;
                         Certification = int.TryParse(parts[2], out int c) ? c : 0;
                     }
@@ -310,7 +336,8 @@ public class NetworkSession : IDisposable
                     else
                     {
                         // 账号下无角色，自动创建战士
-                        Log("[角色查询] 账号无角色，自动创建初始男战士...");
+                        Log("[角色查询] 账号无角色，自动创建初始男战士(等待1.1s规避频率限制)...");
+                        await Task.Delay(1100);
                         CharacterName = "逐鹿天下";
                         DefaultMessage newMsg = new(ProtocolConsts.CM_NEWCHR, 0, 0, 0, 0);
                         // uid/uname/hair/job/sex
@@ -320,12 +347,14 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
-                // 阶段 2: 创建角色成功，立即选定
+                // 阶段 2: 创建角色成功，再次查询角色名册触发选角 (对齐OpenMir2 boChrQueryed状态位)
                 case ProtocolConsts.SM_NEWCHR_SUCCESS:
                 {
-                    Log($"[角色创建成功] 正在选定角色【{CharacterName}】...");
-                    DefaultMessage selMsg = new(ProtocolConsts.CM_SELCHR, 0, 0, 0, 0);
-                    await _conn.SendGatePacketAsync(selMsg, EDCode.EncodeString($"{Account}/{CharacterName}"));
+                    Log($"[角色创建成功] 正在刷新角色名册以激活选角权限(等待1.1s规避频率限制)...");
+                    await Task.Delay(1100);
+                    DefaultMessage queryMsg = new(ProtocolConsts.CM_QUERYCHR, 0, 0, 0, 0);
+                    string queryPayload = EDCode.EncodeString($"{Account}/{Certification}");
+                    await _conn.SendGatePacketAsync(queryMsg, queryPayload);
                     break;
                 }
 
@@ -334,11 +363,27 @@ public class NetworkSession : IDisposable
                 {
                     string decoded = EDCode.DecodeText(e.Payload);
                     var parts = decoded.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                    string gHost = parts.Length >= 1 ? parts[0] : "";
+                    int gPort = 7200;
+
                     if (parts.Length >= 2)
                     {
-                        GameGateHost = parts[0];
-                        GameGatePort = int.TryParse(parts[1], out int gp) ? gp : 7200;
+                        gHost = parts[0];
+                        gPort = int.TryParse(parts[1], out int gp) && gp > 0 ? gp : 7200;
                     }
+                    else if (parts.Length == 1 && int.TryParse(parts[0], out int singlePort) && singlePort > 0)
+                    {
+                        gHost = "";
+                        gPort = singlePort;
+                    }
+
+                    if (string.IsNullOrEmpty(gHost) || gHost == "127.0.0.1" || gHost == "0.0.0.0" || gHost.StartsWith("172.") || gHost.StartsWith("10."))
+                    {
+                        gHost = _currentLoginHost;
+                    }
+
+                    GameGateHost = gHost;
+                    GameGatePort = gPort;
                     Log($"[选角成功] 游戏世界网关: {GameGateHost}:{GameGatePort}");
                     Step = NetworkStep.CharacterReady;
                     _stepTcs?.TrySetResult(true);
@@ -463,7 +508,6 @@ public class NetworkSession : IDisposable
 
                 // 玩家发言与普通视野广播
                 case ProtocolConsts.SM_HEAR:
-                case ProtocolConsts.SM_HEAR_LEGACY:
                 {
                     var chatEvt = ChatProtocolManager.ParseHearMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);

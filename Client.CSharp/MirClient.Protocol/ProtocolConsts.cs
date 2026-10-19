@@ -171,9 +171,10 @@ public static class ProtocolConsts
     public const ushort SM_NEWCHR_FAIL          = 522;  // 创建角色失败
     public const ushort SM_STARTPLAY            = 525;  // 选角成功，开始进入游戏网关
     public const ushort SM_QUERYCHR_FAIL        = 527;  // 查询角色失败
+    public const ushort SM_PASSWD_FAIL          = 503;  // 密码验证失败或账号在线踢下线
     public const ushort SM_PASSOK_SELECTSERVER  = 529;  // 密码验证通过，请求选择服务器
+    public const ushort SM_SELECTSERVER_OK      = 530;  // 选服成功，下发角色网关地址与凭证
     public const ushort SM_HEAR                 = 40;   // 收到普通聊天发言广播 (Recog=ActorId)
-    public const ushort SM_HEAR_LEGACY          = 530;  // 兼容老网关发言命令
     public const ushort SM_SYSMESSAGE           = 100;  // 系统广播/公告/提示信息
     public const ushort SM_GROUPMESSAGE         = 101;  // 组队频道聊天消息
     public const ushort SM_CRY                  = 102;  // 喊话频道广播

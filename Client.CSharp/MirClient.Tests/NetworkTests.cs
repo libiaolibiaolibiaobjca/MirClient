@@ -55,6 +55,14 @@ public class NetworkTests
     }
 
     [Fact]
+    public void TestActualQueryChrPayload()
+    {
+        string payload = "^o=r`a?k`_Yh_`X^_`?_ccPf`_Z`_a?_a`?g`_H";
+        string decoded = EDCode.DecodeText(payload);
+        Assert.Contains("gm01", decoded);
+    }
+
+    [Fact]
     public void TestGameHandshakePacket_Format()
     {
         string handshake = "**mir2_hero/逐鹿天下/888888/10/10";
