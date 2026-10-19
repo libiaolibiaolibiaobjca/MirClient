@@ -64,7 +64,9 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
     session.OnLog += msg => Console.WriteLine($"  {msg}");
     session.OnGamePacket += (hdr, payload) =>
     {
-        Console.WriteLine($"  [游戏世界下行] Ident={hdr.Ident}, Recog={hdr.Recog}, Param={hdr.Param}, Tag={hdr.Tag}, PayloadLen={payload?.Length ?? 0}");
+        string name = GetIdentName(hdr.Ident);
+        string decPayload = !string.IsNullOrEmpty(payload) ? EDCode.DecodeText(payload) : "";
+        Console.WriteLine($"  [游戏世界下行] Ident={hdr.Ident} [{name}], Recog={hdr.Recog}, Param={hdr.Param}, Tag={hdr.Tag}, Series={hdr.Series}, DecPayload=\"{decPayload}\"");
     };
 
     bool pipelineSuccess = await session.StartLoginPipelineAsync(config.ServerAddr, config.ServerPort, account, password);
@@ -74,14 +76,43 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
         return;
     }
 
-    Console.WriteLine("\n[测试结果] ✅ 成功进入游戏世界！等待接收游戏世界实体广播包 (持续 3 秒)...");
+    Console.WriteLine("\n[测试结果] ✅ 成功进入游戏世界！等待接收游戏世界落地与实体广播包 (持续 3 秒)...");
     
     // 发送时间同步心跳包 (CM_CHECKTIME) 测试游戏网关双向收发
     await session.SendCheckTimeAsync(Environment.TickCount);
     await Task.Delay(3000);
+
+    Console.WriteLine("\n[移动与动作交互测试] 发送 CM_TURN (原地向南转身)...");
+    DefaultMessage turnMsg = new(ProtocolConsts.CM_TURN, 0, 330, 268, 4);
+    await session.SendGatePacketAsync(turnMsg);
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[移动与动作交互测试] 发送 CM_WALK (走步测试)...");
+    DefaultMessage walkMsg = new(ProtocolConsts.CM_WALK, 0, 331, 268, 2);
+    await session.SendGatePacketAsync(walkMsg);
+    await Task.Delay(1500);
     
-    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络集成测试圆满成功！\n");
+    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络与世界移动集成测试圆满成功！\n");
 }
+
+static string GetIdentName(ushort ident) => ident switch
+{
+    ProtocolConsts.SM_TURN => "SM_TURN (实体入视野/转身)",
+    ProtocolConsts.SM_WALK => "SM_WALK (走步同步)",
+    ProtocolConsts.SM_RUN => "SM_RUN (跑步同步)",
+    ProtocolConsts.SM_HIT => "SM_HIT (攻击动作)",
+    ProtocolConsts.SM_DISAPPEAR => "SM_DISAPPEAR (实体脱离视野)",
+    ProtocolConsts.SM_LOGON => "SM_LOGON (登录落地确认)",
+    ProtocolConsts.SM_NEWMAP => "SM_NEWMAP (地图加载)",
+    ProtocolConsts.SM_CHANGEMAP => "SM_CHANGEMAP (地图切换)",
+    ProtocolConsts.SM_ABILITY => "SM_ABILITY (人物属性)",
+    ProtocolConsts.SM_SUBABILITY => "SM_SUBABILITY (次要属性)",
+    ProtocolConsts.SM_HEALTHSPELLCHANGED => "SM_HEALTHSPELLCHANGED (HP/MP变更)",
+    ProtocolConsts.SM_FEATURECHANGED => "SM_FEATURECHANGED (外观特征变更)",
+    ProtocolConsts.SM_SENDNOTICE => "SM_SENDNOTICE (登入公告/就绪)",
+    15999 => "SM_CHECKTIME (心跳校时应答)",
+    _ => $"Code={ident}"
+};
 
 static void RunCliProbe(ClientConfig config)
 {

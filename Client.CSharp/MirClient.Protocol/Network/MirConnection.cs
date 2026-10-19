@@ -165,9 +165,9 @@ public class MirConnection : IDisposable
                         DefaultMessage header = EDCode.DecodeMessage(encodedHeader);
                         OnPacketReceived?.Invoke(this, new PacketReceivedEventArgs(header, payload, fullPacket));
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // 忽略格式损坏的脏包
+                        Console.WriteLine($"[数据包解析警告] 无法解析消息头: {encodedHeader}, 原因: {ex.Message}");
                     }
                 }
             }

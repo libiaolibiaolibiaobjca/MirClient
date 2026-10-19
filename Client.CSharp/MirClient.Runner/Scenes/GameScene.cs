@@ -23,6 +23,7 @@ public class GameScene : IScene
     private bool _mapLoaded = false;
 
     // 玩家世界坐标 (以瓦片为单位，比奇省老兵坐标 330, 268)
+    private int _playerActorId = 0;
     private Vector2 _playerTilePos = new(330, 268);
     private Vector2 _targetTilePos = new(330, 268);
     private int _direction = 4; // 初始面向南方 (0: 上, 1: 右上, 2: 右, 3: 右下, 4: 下, 5: 左下, 6: 左, 7: 左上)
@@ -3962,13 +3963,26 @@ public class GameScene : IScene
         switch (header.Ident)
         {
             case ProtocolConsts.SM_LOGON:
-                _chatLogs.Add($"[世界] 收到服务端 SM_LOGON 确认！生命值上限: {header.Recog}");
+            {
+                _playerActorId = header.Recog;
+                _playerTilePos = new Vector2(header.Param, header.Tag);
+                _targetTilePos = _playerTilePos;
+                _direction = header.Series & 0x07;
+                _cameraPixelPos = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+                _chatLogs.Add($"[世界] 角色【{_playerName}】落地玛法大陆！坐标: [{(int)_playerTilePos.X}, {(int)_playerTilePos.Y}], 朝向: {_direction}");
                 break;
+            }
 
+            case ProtocolConsts.SM_NEWMAP:
             case ProtocolConsts.SM_CHANGEMAP:
             {
-                string mapName = EDCode.DecodeText(payload);
-                _chatLogs.Add($"[世界] 服务端指示切换地图: {mapName}");
+                string mapName = EDCode.DecodeText(payload).Trim('\0', ' ', '\r', '\n');
+                if (string.IsNullOrWhiteSpace(mapName)) mapName = "0";
+                _playerActorId = header.Recog;
+                _playerTilePos = new Vector2(header.Param, header.Tag);
+                _targetTilePos = _playerTilePos;
+                _cameraPixelPos = _playerTilePos * new Vector2(TILE_WIDTH, TILE_HEIGHT);
+                _chatLogs.Add($"[世界] 进入地图【{mapName}】，出生坐标: [{(int)_playerTilePos.X}, {(int)_playerTilePos.Y}]");
                 break;
             }
 
@@ -3978,7 +3992,7 @@ public class GameScene : IScene
                 int entityId = header.Recog;
                 int x = header.Param;
                 int y = header.Tag;
-                int dir = header.Series;
+                int dir = header.Series & 0x07;
                 string decPayload = EDCode.DecodeText(payload);
                 var parts = decPayload.Split('/');
                 string entityName = parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]) 
@@ -4014,13 +4028,52 @@ public class GameScene : IScene
 
             case ProtocolConsts.SM_TURN:
             {
+                int entityId = header.Recog;
+                int x = header.Param;
+                int y = header.Tag;
+                int dir = header.Series & 0x07;
+                string decPayload = EDCode.DecodeText(payload);
+                string entityName = !string.IsNullOrWhiteSpace(decPayload) ? decPayload.Split('/')[0] : "";
+
+                if (entityId == _playerActorId && _playerActorId != 0)
+                {
+                    _direction = dir;
+                    break;
+                }
+
                 lock (_entities)
                 {
-                    var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
-                    if (entity != null)
+                    var entity = _entities.FirstOrDefault(e => e.RecogId == entityId);
+                    if (entity == null)
                     {
-                        entity.Direction = header.Series;
+                        if (string.IsNullOrWhiteSpace(entityName)) entityName = "神秘行者";
+                        var newEntity = new MapEntity(entityId, entityName, EntityType.Monster, new Vector2(x, y), 0, 100)
+                        {
+                            Direction = dir
+                        };
+                        _entities.Add(newEntity);
+                        _chatLogs.Add($"[视野感知] 实体【{entityName}】出现于 [{x}, {y}]！");
+                    }
+                    else
+                    {
+                        entity.TilePos = new Vector2(x, y);
+                        entity.Direction = dir;
                         entity.CurrentAction = HumanActionType.Stand;
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_DISAPPEAR:
+            {
+                int entityId = header.Recog;
+                lock (_entities)
+                {
+                    var removed = _entities.FirstOrDefault(e => e.RecogId == entityId);
+                    if (removed != null)
+                    {
+                        _entities.Remove(removed);
+                        _chatLogs.Add($"[视野离开] 实体【{removed.Name}】离开当前视野。");
                     }
                 }
                 break;
@@ -4029,13 +4082,27 @@ public class GameScene : IScene
             case ProtocolConsts.SM_WALK:
             case ProtocolConsts.SM_RUN:
             {
+                int entityId = header.Recog;
+                int x = header.Param;
+                int y = header.Tag;
+                int dir = header.Series & 0x07;
+
+                if (entityId == _playerActorId && _playerActorId != 0)
+                {
+                    _playerTilePos = new Vector2(x, y);
+                    _targetTilePos = _playerTilePos;
+                    _direction = dir;
+                    _currentAction = header.Ident == ProtocolConsts.SM_RUN ? HumanActionType.Run : HumanActionType.Walk;
+                    break;
+                }
+
                 lock (_entities)
                 {
                     var entity = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
                     if (entity != null)
                     {
                         entity.TilePos = new Vector2(header.Param, header.Tag);
-                        entity.Direction = header.Series;
+                        entity.Direction = dir;
                         entity.CurrentAction = header.Ident == ProtocolConsts.SM_RUN ? HumanActionType.Run : HumanActionType.Walk;
                     }
                 }
@@ -4094,7 +4161,6 @@ public class GameScene : IScene
                 break;
             }
 
-            case ProtocolConsts.SM_DISAPPEAR:
             case ProtocolConsts.SM_SKELETON:
             {
                 lock (_entities)

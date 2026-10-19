@@ -143,6 +143,7 @@ public class NetworkSession : IDisposable
     public NetworkSession()
     {
         _conn.OnPacketReceived += HandlePacket;
+        _conn.OnRawPacketReceived += (s, raw) => Log($"[网络原始下行] {raw}");
         _conn.OnDisconnected += (s, reason) =>
         {
             if (Step != NetworkStep.InWorld && Step != NetworkStep.Idle)
@@ -239,10 +240,25 @@ public class NetworkSession : IDisposable
             Log($"[网络 3/3] 正在连接游戏网关 {GameGateHost}:{GameGatePort} ...");
             await _conn.ConnectAsync(GameGateHost, GameGatePort, timeoutMs: 3000);
 
-            // 发送游戏世界握手包 (**account/charName/cert/version/version)
-            string handshake = $"**{Account}/{CharacterName}/{Certification}/10/10";
+            // 发送游戏世界握手包 (**account/charName/cert/clientVerNo/code/hardwareId)
+            // 严格对齐 OpenMir2 GameGate ClientSession: clientVer >= 8 字符, code == 10 字符
+            string clientVerNo = "20240101";
+            string clientCode = "1000000000";
+            string handshake = $"**{Account}/{CharacterName}/{Certification}/{clientVerNo}/{clientCode}//";
             await _conn.SendRawPacketAsync(EDCode.EncodeString(handshake));
             Log($"[网络 3/3] 已向游戏世界发送角色【{CharacterName}】登入握手！");
+
+            // 稍作延时并发送 CM_LOGINNOTICEOK 确认进图 (触发服务端下发 SM_NEWMAP 与 SM_LOGON)
+            await Task.Delay(300);
+            DefaultMessage noticeOkMsg = new(
+                ident: ProtocolConsts.CM_LOGINNOTICEOK,
+                recog: 0,
+                param: (ushort)(Environment.TickCount & 0xFFFF),
+                tag: 0,
+                series: 0
+            );
+            await _conn.SendGatePacketAsync(noticeOkMsg);
+            Log($"[网络 3/3] 已发送 CM_LOGINNOTICEOK 确认进图！");
 
             Step = NetworkStep.InWorld;
             return true;
@@ -405,6 +421,22 @@ public class NetworkSession : IDisposable
                 {
                     NpcScriptDialogManager.Instance.CloseDialog();
                     OnMerchantClose?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 服务端下发登入公告与准备就绪
+                case ProtocolConsts.SM_SENDNOTICE:
+                {
+                    Log("[世界] 收到服务端登入公告，正在回复 CM_LOGINNOTICEOK 确认进图...");
+                    DefaultMessage noticeOk = new(
+                        ident: ProtocolConsts.CM_LOGINNOTICEOK,
+                        recog: 0,
+                        param: (ushort)(Environment.TickCount & 0xFFFF),
+                        tag: 0,
+                        series: 0
+                    );
+                    await _conn.SendGatePacketAsync(noticeOk);
                     OnGamePacket?.Invoke(e.Header, e.Payload);
                     break;
                 }

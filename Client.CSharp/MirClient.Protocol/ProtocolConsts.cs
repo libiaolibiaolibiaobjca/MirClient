@@ -11,13 +11,18 @@ public static class ProtocolConsts
     public const ushort CM_DELCHR        = 102;  // 删除角色
     public const ushort CM_SELCHR        = 103;  // 选择角色进入游戏
     public const ushort CM_SELECTSERVER  = 104;  // 选择游戏区服
-    public const ushort CM_TURN          = 1003; // 角色原地转身
-    public const ushort CM_WALK          = 1004; // 角色走步 (单格)
-    public const ushort CM_RUN           = 1005; // 角色奔跑 (跨格)
-    public const ushort CM_HIT           = 1006; // 角色物理攻击
+    public const ushort CM_TURN          = 3010; // 角色原地转身 (OpenMir2 标准指令)
+    public const ushort CM_WALK          = 3011; // 角色单格走步 (OpenMir2 标准指令)
+    public const ushort CM_RUN           = 3013; // 角色双格奔跑 (OpenMir2 标准指令)
+    public const ushort CM_HIT           = 3014; // 角色物理普通攻击 (OpenMir2 标准指令)
     public const ushort CM_SPELL         = 3017; // 角色主动施放技能法术
-    public const ushort CM_SAY           = 1007; // 玩家发言广播 (经典网关兼容)
-    public const ushort CM_SAY_OPENMIR2  = 3030; // 玩家发言广播 (OpenMir2 标准命令)
+    public const ushort CM_SAY           = 3030; // 玩家发言广播 (OpenMir2 标准指令)
+    public const ushort CM_SAY_OPENMIR2  = 3030; // 玩家发言广播 (OpenMir2 标准指令)
+    public const ushort CM_TURN_LEGACY   = 1003; // 兼容老网关原地转身
+    public const ushort CM_WALK_LEGACY   = 1004; // 兼容老网关单格走步
+    public const ushort CM_RUN_LEGACY    = 1005; // 兼容老网关双格奔跑
+    public const ushort CM_HIT_LEGACY    = 1006; // 兼容老网关物理攻击
+    public const ushort CM_SAY_LEGACY    = 1007; // 兼容老网关发言广播
 
     // =========================================================================
     // OpenMir2 原生动作与战士高级打击指令 (3010 ~ 3038)
@@ -124,18 +129,32 @@ public static class ProtocolConsts
     public const ushort CM_ADDNEWUSER    = 2002; // 账号注册
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
 
-    // 服务端发往客户端的响应与世界广播 (SM_)
+    // 服务端发往客户端的核心动作与世界广播 (SM_ 严格 1:1 对齐 OpenMir2/Messages.cs)
+    public const ushort SM_TURN                 = 10;   // 实体转向 / 新实体进入视野 (Recog=ActorId, Param=X, Tag=Y, Series=Dir, Payload=ShowName)
+    public const ushort SM_WALK                 = 11;   // 实体单格走步 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=Dir)
+    public const ushort SM_SITDOWN              = 12;   // 实体打坐蹲下
+    public const ushort SM_RUN                  = 13;   // 实体双格奔跑 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=Dir)
+    public const ushort SM_HIT                  = 14;   // 实体物理普通攻击 (Recog=ActorId, Param=X, Tag=Y, Series=Dir)
+    public const ushort SM_HEAVYHIT             = 15;   // 攻杀剑术
+    public const ushort SM_BIGHIT               = 16;   // 刺杀剑术
     public const ushort SM_SPELL                = 17;   // 实体施放技能法术广播 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=MagicId)
-    public const ushort SM_LOGON                = 50;   // 登录进入世界 (下发玩家属性)
-    public const ushort SM_TURN                 = 51;   // 实体转身
-    public const ushort SM_WALK                 = 52;   // 实体走步
-    public const ushort SM_RUN                  = 53;   // 实体奔跑
-    public const ushort SM_HIT                  = 54;   // 实体攻击
-    public const ushort SM_POWERHIT             = 55;   // 强力攻击
-    public const ushort SM_STRUCK               = 56;   // 实体受击硬直与掉血
-    public const ushort SM_DEATH                = 57;   // 实体死亡倒地
-    public const ushort SM_SKELETON             = 58;   // 实体遗骸化
-    public const ushort SM_DISAPPEAR            = 59;   // 实体离开视野或消失
+    public const ushort SM_POWERHIT             = 18;   // 半月弯刀
+    public const ushort SM_LONGHIT              = 19;   // 刺杀长距剑气
+    public const ushort SM_MOVEFAIL             = 28;   // 移动失败/坐标被阻挡回退
+    public const ushort SM_HIDE                 = 29;   // 实体隐身
+    public const ushort SM_DISAPPEAR            = 30;   // 实体离开视野或消失 (Recog=ActorId)
+    public const ushort SM_STRUCK               = 31;   // 实体受击硬直与掉血
+    public const ushort SM_DEATH                = 32;   // 实体死亡倒地
+    public const ushort SM_SKELETON             = 33;   // 实体遗骸化
+    public const ushort SM_NOWDEATH             = 34;   // 尸体状态
+    public const ushort SM_USERNAME             = 42;   // 实体名称查询返回
+    public const ushort SM_LOGON                = 50;   // 登录进入世界 (Recog=ActorId, Param=X, Tag=Y, Series=Dir|Light, Payload=Feature)
+    public const ushort SM_NEWMAP               = 51;   // 切换/加载地图 (ActorId, Param=X, Tag=Y, Series=DayBright, Payload=MapFileName)
+    public const ushort SM_ABILITY              = 52;   // 角色属性与数值更新
+    public const ushort SM_HEALTHSPELLCHANGED   = 53;   // 生命与魔法值变化更新
+    public const ushort SM_MAPDESCRIPTION       = 54;   // 地图描述信息
+    public const ushort SM_SUBABILITY          = 58;   // 角色次要属性更新
+    public const ushort SM_ATTACKMODE           = 213;  // 攻击模式更新
     public const ushort SM_DROPITEM_SUCCESS     = 600;  // 丢弃物品成功确认
     public const ushort SM_DROPITEM_FAIL        = 601;  // 丢弃物品失败
     public const ushort SM_ITEMSHOW             = 610;  // 地面生成物品广播 (坐标/造型/名称)
@@ -163,6 +182,7 @@ public static class ProtocolConsts
     public const ushort SM_SENDMYMAGIC          = 211;  // 下发角色已掌握法术列表
     public const ushort SM_MERCHANTSAY          = 643;  // NPC 对话正文与脚本选项下发
     public const ushort SM_MERCHANTDLGCLOSE     = 644;  // 关闭 NPC 对话框
+    public const ushort SM_SENDNOTICE          = 658;  // 服务端下发登入公告与准备就绪
     public const ushort SM_SENDGOODSLIST        = 645;  // NPC 商品货架列表
     public const ushort SM_SENDUSERSELL         = 646;  // NPC 回购物品视窗
     public const ushort SM_SENDUSERREPAIR       = 668;  // NPC 特修/普修视窗
