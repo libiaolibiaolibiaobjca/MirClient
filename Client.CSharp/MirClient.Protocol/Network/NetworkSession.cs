@@ -97,6 +97,21 @@ public class NetworkSession : IDisposable
     public event Action<StallSignboardRecord>? OnStallSignboardChanged;
     public event Action<IReadOnlyList<RemoteStallShelfItem>>? OnOtherStallShelvesReceived;
 
+    // =========================================================================
+    // OpenMir2 庄园全服元宝寄售行 (DealOff) 事件通知
+    // =========================================================================
+    public event Action<int>? OnDealOffFormOpened;
+    public event Action? OnDealOffAddItemSuccess;
+    public event Action? OnDealOffAddItemFail;
+    public event Action? OnDealOffDelItemSuccess;
+    public event Action? OnDealOffDelItemFail;
+    public event Action? OnDealOffCancelSuccess;
+    public event Action? OnDealOffEndSuccess;
+    public event Action? OnDealOffEndFail;
+    public event Action<ClientDealOffInfo>? OnDealOffQuerySellReceived;
+    public event Action<ClientDealOffInfo>? OnDealOffQueryDealReceived;
+    public event Action? OnDealOffBuySuccess;
+
     public NetworkSession()
     {
         _conn.OnPacketReceived += HandlePacket;
@@ -938,6 +953,105 @@ public class NetworkSession : IDisposable
                     break;
                 }
 
+                // =============================================================
+                // OpenMir2 庄园全服元宝寄售行系统 (DealOff) (23001 ~ 23027)
+                // =============================================================
+                case ProtocolConsts.SM_SENDDEALOFFFORM:
+                {
+                    int npcId = e.Header.Param;
+                    Log($"[元宝寄售] 打开寄售出售窗口，NPC: {npcId}");
+                    OnDealOffFormOpened?.Invoke(npcId);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFADDITEM_OK:
+                {
+                    Log("[元宝寄售] 物品放入寄售窗口成功");
+                    OnDealOffAddItemSuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFADDITEM_FAIL:
+                {
+                    Log("[元宝寄售] 物品放入寄售窗口失败");
+                    OnDealOffAddItemFail?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFDELITEM_OK:
+                {
+                    Log("[元宝寄售] 寄售物品撤回成功");
+                    OnDealOffDelItemSuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFDELITEM_FAIL:
+                {
+                    Log("[元宝寄售] 寄售物品撤回失败");
+                    OnDealOffDelItemFail?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFCANCEL:
+                {
+                    Log("[元宝寄售] 取消寄售成功，物品已返还");
+                    OnDealOffCancelSuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFEND_OK:
+                {
+                    Log("[元宝寄售] 寄售挂牌成功");
+                    OnDealOffEndSuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFEND_FAIL:
+                {
+                    Log("[元宝寄售] 寄售挂牌失败");
+                    OnDealOffEndFail?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_QUERYYBSELL:
+                {
+                    var dealOffInfo = DealOffProtocolManager.DecodeDealOffInfo(e.Payload);
+                    if (dealOffInfo != null)
+                    {
+                        OnDealOffQuerySellReceived?.Invoke(dealOffInfo);
+                    }
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_QUERYYBDEAL:
+                {
+                    var dealOffInfo = DealOffProtocolManager.DecodeDealOffInfo(e.Payload);
+                    if (dealOffInfo != null)
+                    {
+                        OnDealOffQueryDealReceived?.Invoke(dealOffInfo);
+                    }
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                case ProtocolConsts.SM_SELLOFFBUY_OK:
+                {
+                    Log("[元宝寄售] 购买寄售物品成功");
+                    OnDealOffBuySuccess?.Invoke();
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+
                 // 阶段 3: 游戏世界广播数据
                 default:
                 {
@@ -1323,6 +1437,74 @@ public class NetworkSession : IDisposable
         var (header, payload) = StallProtocolManager.CreateOpenOtherStallPacket(ownerActorId, ownerName);
         await SendGamePacketAsync(header, payload);
     }
+
+    // =========================================================================
+    // OpenMir2 庄园全服元宝寄售行 (DealOff) 发包 API
+    // =========================================================================
+
+    /// <summary>
+    /// 发送向寄售出售窗口放入物品请求 (CM_SELLOFFADDITEM = 23002)
+    /// </summary>
+    public async Task SendDealOffAddItemAsync(int makeIndex, string itemName)
+    {
+        var (header, payload) = DealOffProtocolManager.CreateAddItemPacket(makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送从寄售出售窗口撤销物品请求 (CM_SELLOFFDELITEM = 23007)
+    /// </summary>
+    public async Task SendDealOffDelItemAsync(int makeIndex, string itemName)
+    {
+        var (header, payload) = DealOffProtocolManager.CreateDelItemPacket(makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送取消元宝寄售出售窗口请求 (CM_SELLOFFCANCEL = 23012)
+    /// </summary>
+    public async Task SendDealOffCancelAsync()
+    {
+        var (header, payload) = DealOffProtocolManager.CreateCancelPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 发送确认元宝寄售挂牌请求 (CM_SELLOFFEND = 23015)
+    /// </summary>
+    public async Task SendDealOffEndAsync(int sellGold, int gameDiamond = 0, string buyChrName = "")
+    {
+        var (header, payload) = DealOffProtocolManager.CreateEndPacket(sellGold, gameDiamond, buyChrName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 出售人发送取消正在出售中的寄售单请求 (CM_CANCELSELLOFFITEMING = 23024)
+    /// </summary>
+    public async Task SendDealOffCancelSellingAsync()
+    {
+        var (header, payload) = DealOffProtocolManager.CreateCancelSellingPacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 购买人发送取消选购请求 (CM_SELLOFFBUYCANCEL = 23025)
+    /// </summary>
+    public async Task SendDealOffBuyCancelAsync(string sellerName)
+    {
+        var (header, payload) = DealOffProtocolManager.CreateBuyCancelPacket(sellerName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    /// <summary>
+    /// 购买人发送确认购买商品请求 (CM_SELLOFFBUY = 23026)
+    /// </summary>
+    public async Task SendDealOffBuyAsync(string sellerName)
+    {
+        var (header, payload) = DealOffProtocolManager.CreateBuyPacket(sellerName);
+        await SendGamePacketAsync(header, payload);
+    }
+
 
     /// <summary>
     /// 在游戏世界中向 7200 网关发送行为数据包

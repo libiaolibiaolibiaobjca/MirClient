@@ -179,4 +179,38 @@ public static class ProtocolConsts
     public const ushort SM_HAMSHOPTYPE          = 9060; // 地表摊位招牌/状态广播 (Recog: 摊主ActorId, Payload: 招牌与坐标)
     public const ushort SM_OPHAMSHOP            = 9062; // 下发他人摊位货架列表 (Payload: 货架商品名册)
     public const ushort SM_CHANGEMAP            = 634;  // 切换地图 (下发地图名与坐标)
+
+    // =========================================================================
+    // OpenMir2 原生协议：庄园全服元宝寄售行系统 (DealOff) (23000 ~ 23028)
+    // 严格 1:1 对齐 OpenMir2/src/OpenMir2/Messages.cs
+    // =========================================================================
+    public const ushort RM_SENDDEALOFFFORM      = 23000; // 打开出售物品窗口 (服务端内部)
+    public const ushort SM_SENDDEALOFFFORM      = 23001; // 打开出售物品窗口 (下发)
+    public const ushort CM_SELLOFFADDITEM       = 23002; // 客户端往出售窗口加入物品 (Param1: MakeIndex, Payload: 物品名)
+    public const ushort SM_SELLOFFADDITEM_OK    = 23003; // 客户端往出售窗口加入物品 成功
+    public const ushort RM_SELLOFFADDITEM_OK    = 23004; // 客户端往出售窗口加入物品 成功 (服务端内部)
+    public const ushort SM_SELLOFFADDITEM_FAIL  = 23005; // 客户端往出售窗口加入物品 失败
+    public const ushort RM_SELLOFFADDITEM_FAIL  = 23006; // 客户端往出售窗口加入物品 失败 (服务端内部)
+    public const ushort CM_SELLOFFDELITEM       = 23007; // 客户端删除出售窗口里的物品 (Param1: MakeIndex, Payload: 物品名)
+    public const ushort SM_SELLOFFDELITEM_OK    = 23008; // 客户端删除出售窗口里的物品 成功
+    public const ushort RM_SELLOFFDELITEM_OK    = 23009; // 客户端删除出售窗口里的物品 成功 (服务端内部)
+    public const ushort SM_SELLOFFDELITEM_FAIL  = 23010; // 客户端删除出售窗口里的物品 失败
+    public const ushort RM_SELLOFFDELITEM_FAIL  = 23011; // 客户端删除出售窗口里的物品 失败 (服务端内部)
+    public const ushort CM_SELLOFFCANCEL        = 23012; // 客户端取消元宝寄售
+    public const ushort RM_SELLOFFCANCEL        = 23013; // 元宝寄售取消出售 (服务端内部)
+    public const ushort SM_SELLOFFCANCEL        = 23014; // 元宝寄售取消出售确认 (返回物品到背包)
+    public const ushort CM_SELLOFFEND           = 23015; // 客户端确认元宝寄售挂牌 (Param1: 元宝数, Param2: 金刚石数, Param3: 验证码, Payload: 购买人)
+    public const ushort SM_SELLOFFEND_OK        = 23016; // 客户端元宝寄售结束 成功
+    public const ushort RM_SELLOFFEND_OK        = 23017; // 客户端元宝寄售结束 成功 (服务端内部)
+    public const ushort SM_SELLOFFEND_FAIL      = 23018; // 客户端元宝寄售结束 失败
+    public const ushort RM_SELLOFFEND_FAIL      = 23019; // 客户端元宝寄售结束 失败 (服务端内部)
+    public const ushort RM_QUERYYBSELL          = 23020; // 查询正在出售的物品 (服务端内部)
+    public const ushort SM_QUERYYBSELL          = 23021; // 查询正在出售的物品 (下发 ClientDealOffInfo 封包)
+    public const ushort RM_QUERYYBDEAL          = 23022; // 查询可以购买的物品 (服务端内部)
+    public const ushort SM_QUERYYBDEAL          = 23023; // 查询可以购买的物品 (下发 ClientDealOffInfo 封包)
+    public const ushort CM_CANCELSELLOFFITEMING = 23024; // 出售人取消正在寄售的物品
+    public const ushort CM_SELLOFFBUYCANCEL     = 23025; // 购买人取消选购 (Payload: 出售人名)
+    public const ushort CM_SELLOFFBUY           = 23026; // 购买人确定购买寄售物品 (Payload: 出售人名)
+    public const ushort SM_SELLOFFBUY_OK        = 23027; // 购买寄售物品成功
+    public const ushort RM_SELLOFFBUY_OK        = 23028; // 购买成功 (服务端内部)
 }
