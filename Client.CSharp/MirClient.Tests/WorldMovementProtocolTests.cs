@@ -111,4 +111,60 @@ public class WorldMovementProtocolTests
         Assert.Equal(ProtocolConsts.SM_DISAPPEAR, parsedHeader.Ident);
         Assert.Equal(entityActorId, parsedHeader.Recog);
     }
+
+    [Fact]
+    public void Test_WorldBroadcast_MapDescriptionAndAbility()
+    {
+        // 1. 验证地图描述信息 SM_MAPDESCRIPTION (54)
+        string mapName = "盟重省";
+        DefaultMessage mapDescMsg = new(
+            ident: ProtocolConsts.SM_MAPDESCRIPTION,
+            recog: -1,
+            param: 0,
+            tag: 0,
+            series: 0
+        );
+        string mapPacket = EDCode.MakePacket(mapDescMsg, EDCode.EncodeString(mapName));
+        string mapContent = mapPacket.Trim('#', '!');
+        DefaultMessage parsedMapHdr = EDCode.DecodeMessage(mapContent[..16]);
+        string decodedMapName = EDCode.DecodeText(mapContent[16..]);
+        Assert.Equal(ProtocolConsts.SM_MAPDESCRIPTION, parsedMapHdr.Ident);
+        Assert.Equal(mapName, decodedMapName);
+
+        // 2. 验证玩家属性下发 SM_ABILITY (52)
+        int gold = 88888;
+        int job = 0; // 战士
+        DefaultMessage abilMsg = new(
+            ident: ProtocolConsts.SM_ABILITY,
+            recog: gold,
+            param: (ushort)job,
+            tag: 0,
+            series: 0
+        );
+        string abilPacket = EDCode.MakePacket(abilMsg, "");
+        string abilContent = abilPacket.Trim('#', '!');
+        DefaultMessage parsedAbilHdr = EDCode.DecodeMessage(abilContent[..16]);
+        Assert.Equal(ProtocolConsts.SM_ABILITY, parsedAbilHdr.Ident);
+        Assert.Equal(gold, parsedAbilHdr.Recog);
+        Assert.Equal(job, parsedAbilHdr.Param & 0xFF);
+
+        // 3. 验证角色名称下发 SM_USERNAME (42)
+        string chrName = "gm01";
+        int chrActorId = 1234567;
+        DefaultMessage nameMsg = new(
+            ident: ProtocolConsts.SM_USERNAME,
+            recog: chrActorId,
+            param: 255, // 名字颜色
+            tag: 0,
+            series: 0
+        );
+        string namePacket = EDCode.MakePacket(nameMsg, EDCode.EncodeString(chrName));
+        string nameContent = namePacket.Trim('#', '!');
+        DefaultMessage parsedNameHdr = EDCode.DecodeMessage(nameContent[..16]);
+        string decodedChrName = EDCode.DecodeText(nameContent[16..]);
+        Assert.Equal(ProtocolConsts.SM_USERNAME, parsedNameHdr.Ident);
+        Assert.Equal(chrActorId, parsedNameHdr.Recog);
+        Assert.Equal(chrName, decodedChrName);
+    }
 }
+

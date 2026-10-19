@@ -4177,6 +4177,77 @@ public class GameScene : IScene
                 break;
             }
 
+            case ProtocolConsts.SM_MAPDESCRIPTION:
+            {
+                string mapDesc = EDCode.DecodeText(payload).Trim('\0', ' ', '\r', '\n');
+                if (!string.IsNullOrWhiteSpace(mapDesc))
+                {
+                    _mapBannerText = mapDesc;
+                    _mapBannerTimer = 4.0f;
+                    _chatLogs.Add($"[地图] 当前所在区域: 【{mapDesc}】");
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_USERNAME:
+            {
+                string name = EDCode.DecodeText(payload).Trim('\0', ' ', '\r', '\n', '\\', '"');
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    if (header.Recog == _playerActorId && _playerActorId != 0)
+                    {
+                        _playerName = name;
+                    }
+                    else
+                    {
+                        lock (_entities)
+                        {
+                            var ent = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                            if (ent != null) ent.Name = name;
+                        }
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_ABILITY:
+            {
+                _gold = header.Recog;
+                int jobVal = header.Param & 0xFF;
+                _chatLogs.Add($"[属性同步] 随身金币: {_gold:N0}, 职业代号: {jobVal}");
+                break;
+            }
+
+            case ProtocolConsts.SM_FEATURECHANGED:
+            {
+                lock (_entities)
+                {
+                    var ent = _entities.FirstOrDefault(e => e.RecogId == header.Recog);
+                    if (ent != null)
+                    {
+                        ent.Appr = header.Param;
+                    }
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_SENDMYMAGIC:
+            {
+                string dec = EDCode.DecodeText(payload);
+                _chatLogs.Add($"[技能系统] 已同步技能树与已习得法术 (技能包数: {header.Series})");
+                break;
+            }
+
+            case 100: // 服务端公告与提示消息广播
+            {
+                string dec = EDCode.DecodeText(payload).Trim('\0', ' ', '\r', '\n');
+                if (!string.IsNullOrWhiteSpace(dec))
+                {
+                    _chatLogs.Add(dec);
+                }
+                break;
+            }
+
             default:
                 break;
         }
