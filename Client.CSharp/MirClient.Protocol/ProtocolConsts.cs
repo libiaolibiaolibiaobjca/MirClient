@@ -130,6 +130,7 @@ public static class ProtocolConsts
     public const ushort CM_USERLOGON     = 2003; // 用户登录确认
 
     // 服务端发往客户端的核心动作与世界广播 (SM_ 严格 1:1 对齐 OpenMir2/Messages.cs)
+    public const ushort SM_FIREHIT             = 8;    // 烈火剑法
     public const ushort SM_TURN                 = 10;   // 实体转向 / 新实体进入视野 (Recog=ActorId, Param=X, Tag=Y, Series=Dir, Payload=ShowName)
     public const ushort SM_WALK                 = 11;   // 实体单格走步 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=Dir)
     public const ushort SM_SITDOWN              = 12;   // 实体打坐蹲下
@@ -138,8 +139,11 @@ public static class ProtocolConsts
     public const ushort SM_HEAVYHIT             = 15;   // 攻杀剑术
     public const ushort SM_BIGHIT               = 16;   // 刺杀剑术
     public const ushort SM_SPELL                = 17;   // 实体施放技能法术广播 (Recog=ActorId, Param=TargetX, Tag=TargetY, Series=MagicId)
-    public const ushort SM_POWERHIT             = 18;   // 半月弯刀
+    public const ushort SM_POWERHIT             = 18;   // 刺杀/半月弯刀
     public const ushort SM_LONGHIT              = 19;   // 刺杀长距剑气
+    public const ushort SM_WIDEHIT              = 24;   // 半月弯刀/群攻
+    public const ushort SM_CRSHIT               = 25;   // 逐日/十字剑法
+    public const ushort SM_TWINHIT              = 26;   // 双龙斩
     public const ushort SM_MOVEFAIL             = 28;   // 移动失败/坐标被阻挡回退
     public const ushort SM_HIDE                 = 29;   // 实体隐身
     public const ushort SM_DISAPPEAR            = 30;   // 实体离开视野或消失 (Recog=ActorId)
@@ -147,6 +151,8 @@ public static class ProtocolConsts
     public const ushort SM_DEATH                = 32;   // 实体死亡倒地
     public const ushort SM_SKELETON             = 33;   // 实体遗骸化
     public const ushort SM_NOWDEATH             = 34;   // 尸体状态
+    public const ushort SM_WINEXP               = 44;   // 获取经验值更新 (Recog: 获得经验值)
+    public const ushort SM_LEVELUP              = 45;   // 角色等级提升 (Recog: 新等级, Param: 当前MaxHP, Tag: 当前MaxMP)
     public const ushort SM_USERNAME             = 42;   // 实体名称查询返回
     public const ushort SM_LOGON                = 50;   // 登录进入世界 (Recog=ActorId, Param=X, Tag=Y, Series=Dir|Light, Payload=Feature)
     public const ushort SM_NEWMAP               = 51;   // 切换/加载地图 (ActorId, Param=X, Tag=Y, Series=DayBright, Payload=MapFileName)

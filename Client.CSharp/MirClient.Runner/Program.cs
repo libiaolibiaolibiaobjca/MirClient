@@ -108,6 +108,14 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
     await session.SendGatePacketAsync(walkMsg);
     await Task.Delay(1500);
 
+    Console.WriteLine("\n[战斗动作测试] 发送 CM_HIT (物理普通攻击测试，目标坐标=331,268，朝向=2)...");
+    await session.SendHitAsync(331, 268, 2);
+    await Task.Delay(1200);
+
+    Console.WriteLine("\n[战斗法术测试] 发送 CM_SPELL (法术施放测试，MagicId=1，目标点=332,268)...");
+    await session.SendSpellAsync(1, 332, 268, 0);
+    await Task.Delay(1200);
+
     Console.WriteLine($"\n[NPC 脚本与经济系统测试] 等待视野内 NPC 实体广播同步 (当前附近实体 ID={nearbyNpcRecogId})...");
     for (int wait = 0; wait < 10 && nearbyNpcRecogId == 0; wait++)
     {
@@ -149,7 +157,16 @@ static string GetIdentName(ushort ident) => ident switch
     ProtocolConsts.SM_TURN => "SM_TURN (实体入视野/转身)",
     ProtocolConsts.SM_WALK => "SM_WALK (走步同步)",
     ProtocolConsts.SM_RUN => "SM_RUN (跑步同步)",
-    ProtocolConsts.SM_HIT => "SM_HIT (攻击动作)",
+    ProtocolConsts.SM_HIT => "SM_HIT (物理攻击动作)",
+    ProtocolConsts.SM_HEAVYHIT => "SM_HEAVYHIT (攻杀剑术)",
+    ProtocolConsts.SM_BIGHIT => "SM_BIGHIT (刺杀剑术)",
+    ProtocolConsts.SM_POWERHIT => "SM_POWERHIT (半月弯刀)",
+    ProtocolConsts.SM_SPELL => "SM_SPELL (实体施法动作)",
+    ProtocolConsts.SM_MAGICFIRE => "SM_MAGICFIRE (法术效果结算)",
+    ProtocolConsts.SM_STRUCK => "SM_STRUCK (受击后仰硬直)",
+    ProtocolConsts.SM_DEATH => "SM_DEATH (实体死亡)",
+    ProtocolConsts.SM_WINEXP => "SM_WINEXP (经验增加)",
+    ProtocolConsts.SM_LEVELUP => "SM_LEVELUP (升级)",
     ProtocolConsts.SM_DISAPPEAR => "SM_DISAPPEAR (实体脱离视野)",
     ProtocolConsts.SM_LOGON => "SM_LOGON (登录落地确认)",
     ProtocolConsts.SM_NEWMAP => "SM_NEWMAP (地图加载)",

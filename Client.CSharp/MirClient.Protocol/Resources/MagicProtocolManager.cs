@@ -110,13 +110,17 @@ public class MagicProtocolManager
         int targetY,
         int targetRecogId = 0)
     {
+        // 严格 1:1 对齐 OpenMir2 官方 Messages.MakeMessage(CM_SPELL, MakeLong(x, y), LoWord(target), magicId, HiWord(target))
+        int recog = (targetX & 0xFFFF) | ((targetY & 0xFFFF) << 16);
+        ushort param = (ushort)(targetRecogId & 0xFFFF);
+        ushort series = (ushort)((targetRecogId >> 16) & 0xFFFF);
         var msg = new DefaultMessage
         {
             Ident = ProtocolConsts.CM_SPELL,
-            Recog = targetRecogId,
-            Param = (ushort)targetX,
+            Recog = recog,
+            Param = param,
             Tag = (ushort)magicId,
-            Series = (ushort)targetY
+            Series = series
         };
 
         string encodedHeader = EDCode.EncodeMessage(msg);

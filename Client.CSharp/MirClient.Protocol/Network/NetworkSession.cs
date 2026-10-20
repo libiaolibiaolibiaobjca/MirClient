@@ -49,6 +49,11 @@ public class NetworkSession : IDisposable
     public event Action<DefaultMessage, string>? OnGamePacket;
     public event Action<int, int, string>? OnMerchantSay;
     public event Action? OnMerchantClose;
+    public event Action<int, int, int, byte, ushort>? OnActorHit;
+    public event Action<int, int, int, byte>? OnActorStruck;
+    public event Action<int, int, int, byte>? OnActorDeath;
+    public event Action<int>? OnWinExp;
+    public event Action<int, int, int>? OnLevelUp;
     public event Action<GroundItemShowEvent>? OnGroundItemShow;
     public event Action<GroundItemHideEvent>? OnGroundItemHide;
     public event Action<bool>? OnDropItemResult;
@@ -516,6 +521,52 @@ public class NetworkSession : IDisposable
                 {
                     int delMakeIndex = InventoryProtocolManager.ParseDelBagItem(e.Header);
                     OnDelBagItem?.Invoke(delMakeIndex);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 实体物理攻击广播 (普通攻击/攻杀/刺杀/半月/烈火等)
+                case ProtocolConsts.SM_HIT:
+                case ProtocolConsts.SM_HEAVYHIT:
+                case ProtocolConsts.SM_BIGHIT:
+                case ProtocolConsts.SM_POWERHIT:
+                case ProtocolConsts.SM_LONGHIT:
+                case ProtocolConsts.SM_WIDEHIT:
+                case ProtocolConsts.SM_FIREHIT:
+                {
+                    OnActorHit?.Invoke(e.Header.Recog, e.Header.Param, e.Header.Tag, (byte)e.Header.Series, e.Header.Ident);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 实体受击硬直与掉血广播
+                case ProtocolConsts.SM_STRUCK:
+                {
+                    OnActorStruck?.Invoke(e.Header.Recog, e.Header.Param, e.Header.Tag, (byte)e.Header.Series);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 实体死亡倒地广播
+                case ProtocolConsts.SM_DEATH:
+                {
+                    OnActorDeath?.Invoke(e.Header.Recog, e.Header.Param, e.Header.Tag, (byte)e.Header.Series);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 玩家击杀/任务获得经验值更新
+                case ProtocolConsts.SM_WINEXP:
+                {
+                    OnWinExp?.Invoke(e.Header.Recog);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 角色等级提升广播
+                case ProtocolConsts.SM_LEVELUP:
+                {
+                    OnLevelUp?.Invoke(e.Header.Recog, e.Header.Param, e.Header.Tag);
                     OnGamePacket?.Invoke(e.Header, e.Payload);
                     break;
                 }
@@ -1311,6 +1362,17 @@ public class NetworkSession : IDisposable
     {
         var (msg, payload, _) = InventoryProtocolManager.CreateTakeOffPacket(itemMakeIndex, slot, itemName);
         await SendGamePacketAsync(msg, payload);
+    }
+
+    /// <summary>
+    /// 发送物理攻击动作封包 (CM_HIT / CM_HEAVYHIT / CM_BIGHIT / CM_POWERHIT 等)
+    /// </summary>
+    public async Task SendHitAsync(int x, int y, byte dir, ushort hitIdent = ProtocolConsts.CM_HIT)
+    {
+        // 严格 1:1 对齐 OpenMir2: Recog = MakeLong(x, y), Tag = dir
+        int recog = (x & 0xFFFF) | ((y & 0xFFFF) << 16);
+        DefaultMessage msg = new(hitIdent, recog, 0, dir, 0);
+        await SendGamePacketAsync(msg, "");
     }
 
     /// <summary>

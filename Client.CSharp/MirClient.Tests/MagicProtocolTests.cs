@@ -17,11 +17,12 @@ public class MagicProtocolTests
 
         var (msg, payload, packet) = MagicProtocolManager.CreateSpellPacket(magicId, targetX, targetY, targetRecogId);
 
+        int expectedRecog = (targetX & 0xFFFF) | ((targetY & 0xFFFF) << 16);
         Assert.Equal(ProtocolConsts.CM_SPELL, msg.Ident);
-        Assert.Equal(targetRecogId, msg.Recog);
-        Assert.Equal(targetX, msg.Param);
+        Assert.Equal(expectedRecog, msg.Recog);
+        Assert.Equal((ushort)(targetRecogId & 0xFFFF), msg.Param);
         Assert.Equal(magicId, msg.Tag);
-        Assert.Equal(targetY, msg.Series);
+        Assert.Equal((ushort)((targetRecogId >> 16) & 0xFFFF), msg.Series);
         Assert.Empty(payload);
         Assert.StartsWith("#", packet);
         Assert.EndsWith("!", packet);
@@ -36,11 +37,12 @@ public class MagicProtocolTests
 
         var (msg, payload, packet) = MagicProtocolManager.CreateSpellPacket(magicId, targetX, targetY);
 
+        int expectedRecog = (targetX & 0xFFFF) | ((targetY & 0xFFFF) << 16);
         Assert.Equal(ProtocolConsts.CM_SPELL, msg.Ident);
-        Assert.Equal(0, msg.Recog);
-        Assert.Equal(targetX, msg.Param);
+        Assert.Equal(expectedRecog, msg.Recog);
+        Assert.Equal(0, msg.Param);
         Assert.Equal(magicId, msg.Tag);
-        Assert.Equal(targetY, msg.Series);
+        Assert.Equal(0, msg.Series);
         Assert.StartsWith("#", packet);
         Assert.EndsWith("!", packet);
     }
@@ -143,10 +145,29 @@ public class MagicProtocolTests
         );
 
         Assert.True(packet.StartsWith("#") && packet.EndsWith("!"));
-        Assert.Equal(12345, msg.Recog);
+        int expectedRecog = (500 & 0xFFFF) | ((600 & 0xFFFF) << 16);
+        Assert.Equal(expectedRecog, msg.Recog);
         Assert.Equal(ProtocolConsts.CM_SPELL, msg.Ident);
-        Assert.Equal(500, msg.Param);
+        Assert.Equal((ushort)(12345 & 0xFFFF), msg.Param);
         Assert.Equal((ushort)MagicType.FireSword, msg.Tag);
-        Assert.Equal(600, msg.Series);
+        Assert.Equal((ushort)((12345 >> 16) & 0xFFFF), msg.Series);
+    }
+
+    [Fact]
+    public void Test_CombatConstants_AlignWithOpenMir2()
+    {
+        Assert.Equal(14, ProtocolConsts.SM_HIT);
+        Assert.Equal(15, ProtocolConsts.SM_HEAVYHIT);
+        Assert.Equal(16, ProtocolConsts.SM_BIGHIT);
+        Assert.Equal(17, ProtocolConsts.SM_SPELL);
+        Assert.Equal(18, ProtocolConsts.SM_POWERHIT);
+        Assert.Equal(19, ProtocolConsts.SM_LONGHIT);
+        Assert.Equal(24, ProtocolConsts.SM_WIDEHIT);
+        Assert.Equal(31, ProtocolConsts.SM_STRUCK);
+        Assert.Equal(32, ProtocolConsts.SM_DEATH);
+        Assert.Equal(44, ProtocolConsts.SM_WINEXP);
+        Assert.Equal(45, ProtocolConsts.SM_LEVELUP);
+        Assert.Equal(3014, ProtocolConsts.CM_HIT);
+        Assert.Equal(3017, ProtocolConsts.CM_SPELL);
     }
 }
