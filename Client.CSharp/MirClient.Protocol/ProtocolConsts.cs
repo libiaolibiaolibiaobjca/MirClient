@@ -186,6 +186,7 @@ public static class ProtocolConsts
     public const ushort SM_SENDGOODSLIST        = 645;  // NPC 商品货架列表
     public const ushort SM_SENDUSERSELL         = 646;  // NPC 回购物品视窗
     public const ushort SM_SENDUSERREPAIR       = 668;  // NPC 特修/普修视窗
+    public const ushort SM_GOLDCHANGED          = 653;  // 金币变动更新 (Recog: 当前总金币)
     public const ushort SM_QUERYCHR             = 520;  // 下发角色列表
     public const ushort SM_NEWCHR_SUCCESS       = 521;  // 创建角色成功
     public const ushort SM_NEWCHR_FAIL          = 522;  // 创建角色失败

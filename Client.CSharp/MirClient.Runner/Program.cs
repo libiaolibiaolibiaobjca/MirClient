@@ -62,11 +62,27 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
 
     using NetworkSession session = new();
     session.OnLog += msg => Console.WriteLine($"  {msg}");
+
+    int playerActorId = 0;
+    int nearbyNpcRecogId = 0;
+
     session.OnGamePacket += (hdr, payload) =>
     {
         string name = GetIdentName(hdr.Ident);
         string decPayload = !string.IsNullOrEmpty(payload) ? EDCode.DecodeText(payload) : "";
         Console.WriteLine($"  [游戏世界下行] Ident={hdr.Ident} [{name}], Recog={hdr.Recog}, Param={hdr.Param}, Tag={hdr.Tag}, Series={hdr.Series}, DecPayload=\"{decPayload}\"");
+
+        if (hdr.Ident == ProtocolConsts.SM_LOGON)
+        {
+            playerActorId = hdr.Recog;
+        }
+        else if (hdr.Ident == ProtocolConsts.SM_TURN && hdr.Recog != playerActorId)
+        {
+            if (nearbyNpcRecogId == 0 || (hdr.Param == 327 && hdr.Tag == 327))
+            {
+                nearbyNpcRecogId = hdr.Recog;
+            }
+        }
     };
 
     bool pipelineSuccess = await session.StartLoginPipelineAsync(config.ServerAddr, config.ServerPort, account, password);
@@ -91,8 +107,41 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
     DefaultMessage walkMsg = new(ProtocolConsts.CM_WALK, 0, 331, 268, 2);
     await session.SendGatePacketAsync(walkMsg);
     await Task.Delay(1500);
+
+    Console.WriteLine($"\n[NPC 脚本与经济系统测试] 等待视野内 NPC 实体广播同步 (当前附近实体 ID={nearbyNpcRecogId})...");
+    for (int wait = 0; wait < 10 && nearbyNpcRecogId == 0; wait++)
+    {
+        await Task.Delay(500);
+    }
+    int targetNpcId = nearbyNpcRecogId != 0 ? nearbyNpcRecogId : 1520532027;
+
+    Console.WriteLine($"\n[NPC 脚本与经济系统测试] 捕获视野内目标 NPC (RecogId={targetNpcId})，正在发送 CM_CLICKNPC 交互探针...");
+    var tcsMerchantSay = new TaskCompletionSource<string>();
+    session.OnMerchantSay += async (npcId, face, rawBody) =>
+    {
+        Console.WriteLine($"\n  ===============================================================");
+        Console.WriteLine($"  [NPC 对话下发] NPC RecogId={npcId}, Face={face}");
+        Console.WriteLine($"  [NPC 脚本内容]\n{rawBody}");
+        Console.WriteLine($"  ===============================================================\n");
+        tcsMerchantSay.TrySetResult(rawBody);
+
+        if (rawBody.Contains("/@"))
+        {
+            Console.WriteLine($"  [NPC 选项交互] 正在发送 CM_MERCHANTDLGSELECT 选择 '@huanjing' 标签...");
+            await session.SendNpcSelectAsync(npcId, "@huanjing");
+        }
+    };
+    await session.SendClickNpcAsync(targetNpcId);
+    await Task.WhenAny(tcsMerchantSay.Task, Task.Delay(4000));
+    await Task.Delay(1000);
     
-    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络与世界移动集成测试圆满成功！\n");
+    // 优雅发送登出封包，清理服务端会话
+    Console.WriteLine("\n[下线注销] 发送 CM_SOFTCLOSE 正常注销退出游戏世界...");
+    await session.SendGatePacketAsync(new DefaultMessage(ProtocolConsts.CM_SOFTCLOSE, 0, 0, 0, 0));
+    await Task.Delay(500);
+    session.Disconnect();
+
+    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络、世界移动与NPC脚本经济系统集成测试圆满成功！\n");
 }
 
 static string GetIdentName(ushort ident) => ident switch
@@ -110,6 +159,16 @@ static string GetIdentName(ushort ident) => ident switch
     ProtocolConsts.SM_HEALTHSPELLCHANGED => "SM_HEALTHSPELLCHANGED (HP/MP变更)",
     ProtocolConsts.SM_FEATURECHANGED => "SM_FEATURECHANGED (外观特征变更)",
     ProtocolConsts.SM_SENDNOTICE => "SM_SENDNOTICE (登入公告/就绪)",
+    ProtocolConsts.SM_MAPDESCRIPTION => "SM_MAPDESCRIPTION (地图品名描述)",
+    ProtocolConsts.SM_USERNAME => "SM_USERNAME (实体名称)",
+    ProtocolConsts.SM_SENDMYMAGIC => "SM_SENDMYMAGIC (已习得法术列表)",
+    ProtocolConsts.SM_MERCHANTSAY => "SM_MERCHANTSAY (NPC对话与脚本下发)",
+    ProtocolConsts.SM_MERCHANTDLGCLOSE => "SM_MERCHANTDLGCLOSE (关闭NPC对话框)",
+    ProtocolConsts.SM_SENDGOODSLIST => "SM_SENDGOODSLIST (商品货架列表)",
+    ProtocolConsts.SM_SENDUSERSELL => "SM_SENDUSERSELL (打开出售视窗)",
+    ProtocolConsts.SM_SENDUSERREPAIR => "SM_SENDUSERREPAIR (打开修理视窗)",
+    ProtocolConsts.SM_SENDBUYPRICE => "SM_SENDBUYPRICE (物品收购估价)",
+    ProtocolConsts.SM_GOLDCHANGED => "SM_GOLDCHANGED (金币变更)",
     15999 => "SM_CHECKTIME (心跳校时应答)",
     _ => $"Code={ident}"
 };

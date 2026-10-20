@@ -393,7 +393,7 @@ public class NetworkSession : IDisposable
                         gPort = singlePort;
                     }
 
-                    if (string.IsNullOrEmpty(gHost) || gHost == "127.0.0.1" || gHost == "0.0.0.0" || gHost.StartsWith("172.") || gHost.StartsWith("10."))
+                    if (!string.IsNullOrEmpty(_currentLoginHost))
                     {
                         gHost = _currentLoginHost;
                     }
