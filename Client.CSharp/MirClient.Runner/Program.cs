@@ -1,5 +1,6 @@
 using MirClient.Protocol;
 using MirClient.Protocol.Network;
+using MirClient.Protocol.Resources;
 using MirClient.Runner;
 
 Console.WriteLine("=================================================================");
@@ -142,6 +143,30 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
     await session.SendClickNpcAsync(targetNpcId);
     await Task.WhenAny(tcsMerchantSay.Task, Task.Delay(4000));
     await Task.Delay(1000);
+
+    Console.WriteLine("\n[背包与装备系统测试] 发送 CM_QUERYBAGITEMS (查询角色背包物品名册)...");
+    await session.SendQueryBagItemsAsync();
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[背包与装备系统测试] 发送 CM_EAT (消耗品/药水使用测试)...");
+    await session.SendEatItemAsync(1, "金创药(小量)");
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[背包与装备系统测试] 发送 CM_TAKEONITEM (穿戴武器装备到 Weapon 槽位)...");
+    await session.SendTakeOnItemAsync(2, EquipSlotType.Weapon, "木剑");
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[背包与装备系统测试] 发送 CM_TAKEOFFITEM (从 Weapon 槽位卸下装备回背包)...");
+    await session.SendTakeOffItemAsync(2, EquipSlotType.Weapon, "木剑");
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[物品丢弃与拾取测试] 发送 CM_DROPITEM (尝试丢弃指定物品至地面)...");
+    await session.SendDropItemAsync(3, 1, "金币");
+    await Task.Delay(1000);
+
+    Console.WriteLine("\n[物品丢弃与拾取测试] 发送 CM_PICKUP (拾取当前坐标脚下地面物品)...");
+    await session.SendPickupAsync(331, 268);
+    await Task.Delay(1000);
     
     // 优雅发送登出封包，清理服务端会话
     Console.WriteLine("\n[下线注销] 发送 CM_SOFTCLOSE 正常注销退出游戏世界...");
@@ -149,7 +174,7 @@ static async Task RunE2EIntegrationProbeAsync(ClientConfig config, string accoun
     await Task.Delay(500);
     session.Disconnect();
 
-    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络、世界移动与NPC脚本经济系统集成测试圆满成功！\n");
+    Console.WriteLine("\n[测试结果] 🎉 OpenMir2 全链路端到端网络、世界移动、战斗、NPC脚本与背包装备系统集成测试圆满成功！\n");
 }
 
 static string GetIdentName(ushort ident) => ident switch
@@ -167,6 +192,19 @@ static string GetIdentName(ushort ident) => ident switch
     ProtocolConsts.SM_DEATH => "SM_DEATH (实体死亡)",
     ProtocolConsts.SM_WINEXP => "SM_WINEXP (经验增加)",
     ProtocolConsts.SM_LEVELUP => "SM_LEVELUP (升级)",
+    ProtocolConsts.SM_BAGITEMS => "SM_BAGITEMS (背包物品名册)",
+    ProtocolConsts.SM_ADDITEM => "SM_ADDITEM (新增物品)",
+    ProtocolConsts.SM_DELITEM => "SM_DELITEM (删除物品)",
+    ProtocolConsts.SM_TAKEON_OK => "SM_TAKEON_OK (穿戴成功)",
+    ProtocolConsts.SM_TAKEON_FAIL => "SM_TAKEON_FAIL (穿戴失败)",
+    ProtocolConsts.SM_TAKEOFF_OK => "SM_TAKEOFF_OK (脱下成功)",
+    ProtocolConsts.SM_TAKEOFF_FAIL => "SM_TAKEOFF_FAIL (脱下失败)",
+    ProtocolConsts.SM_EAT_OK => "SM_EAT_OK (使用成功)",
+    ProtocolConsts.SM_EAT_FAIL => "SM_EAT_FAIL (使用失败)",
+    ProtocolConsts.SM_DROPITEM_SUCCESS => "SM_DROPITEM_SUCCESS (丢弃成功)",
+    ProtocolConsts.SM_DROPITEM_FAIL => "SM_DROPITEM_FAIL (丢弃失败)",
+    ProtocolConsts.SM_ITEMSHOW => "SM_ITEMSHOW (地面生成物品)",
+    ProtocolConsts.SM_ITEMHIDE => "SM_ITEMHIDE (地面物品消失)",
     ProtocolConsts.SM_DISAPPEAR => "SM_DISAPPEAR (实体脱离视野)",
     ProtocolConsts.SM_LOGON => "SM_LOGON (登录落地确认)",
     ProtocolConsts.SM_NEWMAP => "SM_NEWMAP (地图加载)",

@@ -199,4 +199,20 @@ public class InventoryProtocolTests
         var potion = Item.CreateByName("强效太阳水");
         Assert.Null(InventoryProtocolManager.GetPreferredSlot(potion));
     }
+
+    [Fact]
+    public void Test_QueryBagItems_ConstantAlignWithOpenMir2()
+    {
+        Assert.Equal(81, ProtocolConsts.CM_QUERYBAGITEMS);
+        Assert.Equal(201, ProtocolConsts.SM_BAGITEMS);
+        Assert.Equal(615, ProtocolConsts.SM_TAKEON_OK);
+        Assert.Equal(616, ProtocolConsts.SM_TAKEON_FAIL);
+        Assert.Equal(619, ProtocolConsts.SM_TAKEOFF_OK);
+        Assert.Equal(620, ProtocolConsts.SM_TAKEOFF_FAIL);
+        Assert.Equal(635, ProtocolConsts.SM_EAT_OK);
+        Assert.Equal(636, ProtocolConsts.SM_EAT_FAIL);
+        Assert.Equal(600, ProtocolConsts.SM_DROPITEM_SUCCESS);
+        Assert.Equal(601, ProtocolConsts.SM_DROPITEM_FAIL);
+        Assert.Equal(1001, ProtocolConsts.CM_PICKUP);
+    }
 }

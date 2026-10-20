@@ -49,6 +49,7 @@ public class NetworkSession : IDisposable
     public event Action<DefaultMessage, string>? OnGamePacket;
     public event Action<int, int, string>? OnMerchantSay;
     public event Action? OnMerchantClose;
+    public event Action<int, int, string>? OnBagItems;
     public event Action<int, int, int, byte, ushort>? OnActorHit;
     public event Action<int, int, int, byte>? OnActorStruck;
     public event Action<int, int, int, byte>? OnActorDeath;
@@ -567,6 +568,14 @@ public class NetworkSession : IDisposable
                 case ProtocolConsts.SM_LEVELUP:
                 {
                     OnLevelUp?.Invoke(e.Header.Recog, e.Header.Param, e.Header.Tag);
+                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    break;
+                }
+
+                // 角色背包物品名册下发
+                case ProtocolConsts.SM_BAGITEMS:
+                {
+                    OnBagItems?.Invoke(e.Header.Recog, e.Header.Series, e.Payload ?? "");
                     OnGamePacket?.Invoke(e.Header, e.Payload);
                     break;
                 }
