@@ -159,4 +159,73 @@ public class MerchantEconomyProtocolTests
         };
         Assert.Equal(-1, MerchantEconomyProtocolManager.ParseRepairCostResponse(header2));
     }
+
+    [Fact]
+    public void Test_ParseGoodsList_ParsesValidGoodsPayload()
+    {
+        // 4个字段一组: 品名/子菜单/价格/库存/
+        string payload = EDCode.EncodeString("金创药(小量)/0/88/100/魔法药(小量)/1/88/100/强效太阳水/2/550/50/");
+        var list = MerchantEconomyProtocolManager.ParseGoodsList(payload);
+
+        Assert.Equal(3, list.Count);
+        Assert.Equal("金创药(小量)", list[0].Name);
+        Assert.Equal(88, list[0].Price);
+        Assert.Equal(100, list[0].Stock);
+
+        Assert.Equal("强效太阳水", list[2].Name);
+        Assert.Equal(550, list[2].Price);
+        Assert.Equal(50, list[2].Stock);
+    }
+
+    [Fact]
+    public void Test_CreateBuyAndSellItemPackets_MatchOpenMir2Format()
+    {
+        int merchantId = 8801;
+        int menuIdx = 3;
+        string itemName = "随机传送卷";
+
+        var (buyHeader, buyPayload) = MerchantEconomyProtocolManager.CreateBuyItemPacket(merchantId, menuIdx, itemName, 5);
+        Assert.Equal(ProtocolConsts.CM_USERBUYITEM, buyHeader.Ident);
+        Assert.Equal(1014, buyHeader.Ident);
+        Assert.Equal(merchantId, buyHeader.Recog);
+        Assert.Equal(menuIdx, buyHeader.Param);
+        Assert.Equal(5, buyHeader.Series);
+        Assert.Equal(itemName, EDCode.DecodeText(buyPayload));
+
+        int makeIdx = 0x00020005;
+        var (sellHeader, sellPayload) = MerchantEconomyProtocolManager.CreateSellItemPacket(merchantId, makeIdx, "乌木剑", 1);
+        Assert.Equal(ProtocolConsts.CM_USERSELLITEM, sellHeader.Ident);
+        Assert.Equal(1013, sellHeader.Ident);
+        Assert.Equal(merchantId, sellHeader.Recog);
+        Assert.Equal((ushort)5, sellHeader.Param);
+        Assert.Equal((ushort)2, sellHeader.Tag);
+    }
+
+    [Fact]
+    public void Test_ShopManager_SetGoodsAndMode()
+    {
+        var mgr = ShopManager.Instance;
+        mgr.InitDefaultGoods();
+        Assert.NotEmpty(mgr.GetGoods());
+
+        var newGoods = new System.Collections.Generic.List<ClientGoodsItem>
+        {
+            new ClientGoodsItem("屠龙", 0, 50000000, 1)
+        };
+        mgr.SetGoodsList(9901, newGoods);
+
+        Assert.True(mgr.IsOpen);
+        Assert.Equal(9901, mgr.CurrentMerchantId);
+        Assert.Single(mgr.GetGoods());
+        Assert.Equal("屠龙", mgr.GetGoods()[0].Name);
+    }
+
+    [Fact]
+    public void Test_CreateSoftCloseGamePacket_MatchesOpenMir2Ident()
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateSoftCloseGamePacket();
+        Assert.Equal(ProtocolConsts.CM_SOFTCLOSE, header.Ident);
+        Assert.Equal(1009, header.Ident);
+        Assert.Empty(payload);
+    }
 }

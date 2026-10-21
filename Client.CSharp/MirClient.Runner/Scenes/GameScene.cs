@@ -60,6 +60,16 @@ public class GameScene : IScene
     private int _hoveredMagicId = 0;
     private int _skillScrollOffset = 0;
 
+    // F12 经典内挂辅助面板
+    private bool _showHelperWindow = false;
+    private bool _autoPickupEnabled = true;
+    private bool _alwaysShowItemName = true;
+    private bool _showMonsterHpBar = true;
+    private bool _noDarkness = true;
+
+    // Alt + X 快捷小退确认框
+    private bool _showExitConfirm = false;
+
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
     private int _lastBagClickIndex = -1;
@@ -581,6 +591,21 @@ public class GameScene : IScene
             SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
+        // F12 切换盛大原版经典内挂辅助面板
+        if (Raylib.IsKeyPressed(KeyboardKey.F12))
+        {
+            _showHelperWindow = !_showHelperWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
+        // Alt + X 快捷小退/注销安全弹窗
+        bool isAltPressedNow = Raylib.IsKeyDown(KeyboardKey.LeftAlt) || Raylib.IsKeyDown(KeyboardKey.RightAlt);
+        if (isAltPressedNow && Raylib.IsKeyPressed(KeyboardKey.X))
+        {
+            _showExitConfirm = !_showExitConfirm;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+
         // 鼠标悬停技能面板按 Delete 或 Backspace 解除快捷键绑定
         if (_showSkillWindow && _hoveredMagicId > 0 && (Raylib.IsKeyPressed(KeyboardKey.Delete) || Raylib.IsKeyPressed(KeyboardKey.Backspace)))
         {
@@ -1081,16 +1106,21 @@ public class GameScene : IScene
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
-            if (_activeNpc != null)
+            if (_showExitConfirm)
+            {
+                _showExitConfirm = false;
+            }
+            else if (_activeNpc != null)
             {
                 _activeNpc = null;
                 _activeNpcProfile = null;
             }
-            else if (_showBag || _showEquip || _showSkillWindow)
+            else if (_showBag || _showEquip || _showSkillWindow || _showHelperWindow)
             {
                 _showBag = false;
                 _showEquip = false;
                 _showSkillWindow = false;
+                _showHelperWindow = false;
             }
             else
             {
@@ -1262,14 +1292,16 @@ public class GameScene : IScene
         RenderMiniMap(screenW);
 
         // 4. 左上角显示经典热键指引 (带半透明背景框，防树木遮挡)
-        string tipStr = "[F9: 包裹] [F10: 状态] [F11: 技能魔法] [Alt+Enter: 全屏]";
-        Raylib.DrawRectangle(8, 8, 410, 24, new Color(0, 0, 0, 200));
+        string tipStr = "[F9:包裹] [F10:状态] [F11:技能] [F12:内挂] [Alt+X:小退] [Alt+Enter:全屏]";
+        Raylib.DrawRectangle(8, 8, 480, 24, new Color(0, 0, 0, 200));
         FontManager.DrawTextWithShadow(tipStr, 14, 13, 12, Color.Gold, Color.Black);
 
-        // 5. 渲染 F9 背包物品栏、F10 角色装备状态窗口、F11 技能魔法属性面板
+        // 5. 渲染 F9 背包物品栏、F10 角色装备状态窗口、F11 技能魔法属性面板、F12 内挂辅助面板
         if (_showBag) RenderInventoryWindow(screenW, screenH);
         if (_showEquip) RenderEquipmentWindow(screenW, screenH);
         if (_showSkillWindow) RenderSkillWindow(screenW, screenH);
+        if (_showHelperWindow) RenderHelperWindow(screenW, screenH);
+        if (_showExitConfirm) RenderExitConfirmDialog(screenW, screenH);
 
         // 5.1 渲染左侧常驻队伍成员浮窗
         if (GroupManager.Instance.HasGroup)
@@ -1475,9 +1507,10 @@ public class GameScene : IScene
 
             // 品名标牌底色
             string label = gi.DisplayName;
+            bool showAltName = _alwaysShowItemName || Raylib.IsKeyDown(KeyboardKey.LeftAlt) || Raylib.IsKeyDown(KeyboardKey.RightAlt);
             int textW = Raylib.MeasureText(label, 11);
-            Rectangle labelRect = new(itemPixel.X - textW / 2f - 4, itemPixel.Y - 16, textW + 8, 14);
-            Raylib.DrawRectangleRec(labelRect, new Color(0, 0, 0, 160));
+            Rectangle labelRect = new(itemPixel.X - textW / 2f - 5, itemPixel.Y - 17, textW + 10, 16);
+            Raylib.DrawRectangleRec(labelRect, showAltName ? new Color(15, 12, 10, 235) : new Color(0, 0, 0, 160));
 
             // 检测鼠标悬停
             bool isHovered = isMouseInViewport && Raylib.CheckCollisionPointRec(mousePos, labelRect);
@@ -1488,10 +1521,11 @@ public class GameScene : IScene
             }
             else
             {
-                Raylib.DrawRectangleLinesEx(labelRect, 1, new Color(itemColor.R, itemColor.G, itemColor.B, (byte)120));
+                Raylib.DrawRectangleLinesEx(labelRect, 1, showAltName ? Color.Gold : new Color(itemColor.R, itemColor.G, itemColor.B, (byte)120));
             }
 
-            FontManager.DrawTextWithShadow(label, (int)(itemPixel.X - textW / 2f), (int)itemPixel.Y - 15, 11, itemColor, Color.Black);
+            Color drawTextColor = showAltName ? (gi.IsGold ? Color.Gold : (gi.Item?.Type == ItemType.Potion ? new Color(120, 255, 120, 255) : Color.White)) : itemColor;
+            FontManager.DrawTextWithShadow(label, (int)(itemPixel.X - textW / 2f), (int)itemPixel.Y - 15, 11, drawTextColor, Color.Black);
         }
 
         // 【Pass 4.2: 世界 Boss 专属大爆战利品与冲天光柱】
@@ -4465,6 +4499,43 @@ public class GameScene : IScene
                 break;
             }
 
+            case ProtocolConsts.SM_SENDGOODSLIST:
+            {
+                var goods = MerchantEconomyProtocolManager.ParseGoodsList(payload);
+                ShopManager.Instance.SetGoodsList(header.Recog, goods);
+                _npcDialogMode = NpcDialogMode.Shop;
+                _chatLogs.Add($"[商店货架] 已载入【{_activeNpc?.Name ?? "商人"}】的商品货架 (共 {goods.Count} 件商品在售)");
+                break;
+            }
+
+            case ProtocolConsts.SM_BUYITEM_SUCCESS:
+            {
+                _gold = header.Param;
+                SoundManager.Instance.Play(SoundEffectType.PickupItem);
+                _chatLogs.Add($"[交易成功] 成功购得商品！当前金币: {_gold:N0}");
+                break;
+            }
+
+            case ProtocolConsts.SM_BUYITEM_FAIL:
+            {
+                _chatLogs.Add("[交易失败] 购买商品失败！(金币不足或背包负重已满)");
+                break;
+            }
+
+            case ProtocolConsts.SM_USERSELLITEM_OK:
+            {
+                _gold = header.Recog;
+                SoundManager.Instance.Play(SoundEffectType.PickupGold);
+                _chatLogs.Add($"[典当成功] 成功出售闲置物品，换得金币！当前总资产: {_gold:N0}");
+                break;
+            }
+
+            case ProtocolConsts.SM_GOLDCHANGED:
+            {
+                _gold = header.Recog;
+                break;
+            }
+
             case 100: // 服务端公告与提示消息广播
             {
                 string dec = EDCode.DecodeText(payload).Trim('\0', ' ', '\r', '\n');
@@ -4986,6 +5057,12 @@ public class GameScene : IScene
                     if (NpcShop.TryBuyItem(_inv, ref _gold, g, out string err))
                     {
                         _chatLogs.Add($"[交易] 成功购买【{g.Item.Name}】！花费 {g.Price:N0} 金币。(剩余金币: {_gold:N0})");
+                        SoundManager.Instance.Play(SoundEffectType.PickupItem);
+
+                        if (_engine.NetworkSession.IsConnected)
+                        {
+                            _ = _engine.NetworkSession.SendBuyItemAsync((int)(_activeNpc?.RecogId ?? 0), i, g.Item.Name);
+                        }
                     }
                     else
                     {
@@ -7638,6 +7715,125 @@ public class GameScene : IScene
         // 简要说明
         FontManager.DrawText(desc, ttX + 10, ttY + 62, 10, Color.LightGray);
         FontManager.DrawText("提示: 按 F1~F8 绑定快捷键", ttX + 10, ttY + 80, 9, Color.Orange);
+    }
+
+    private void RenderHelperWindow(int screenW, int screenH)
+    {
+        int winW = 320;
+        int winH = 260;
+        int winX = (screenW - winW) / 2;
+        int winY = (screenH - winH) / 2;
+
+        Vector2 mouse = Raylib.GetMousePosition();
+
+        // 1. 底板与金边
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(18, 15, 12, 245));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, Color.Gold);
+
+        // 2. 标题栏
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 30, new Color(38, 28, 20, 255));
+        FontManager.DrawTextWithShadow("【盛大官方经典内挂辅助】(F12)", winX + 16, winY + 8, 13, Color.Gold, Color.Black);
+
+        // 关闭按钮 [X]
+        Rectangle closeRect = new(winX + winW - 30, winY + 6, 22, 20);
+        bool hoverClose = Raylib.CheckCollisionPointRec(mouse, closeRect);
+        Raylib.DrawRectangleRec(closeRect, hoverClose ? Color.Red : new Color(60, 20, 20, 220));
+        FontManager.DrawText("X", winX + winW - 23, winY + 8, 12, Color.White);
+        if (hoverClose && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showHelperWindow = false;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        // 3. 辅助功能勾选列表
+        int startY = winY + 45;
+        int rowH = 40;
+
+        DrawCheckbox(winX + 20, startY + rowH * 0, "自动拾取地面物品 (Auto Pick)", ref _autoPickupEnabled, mouse);
+        DrawCheckbox(winX + 20, startY + rowH * 1, "地面物品总是显名 (Alt/Item Name)", ref _alwaysShowItemName, mouse);
+        DrawCheckbox(winX + 20, startY + rowH * 2, "怪物头顶显血条 (Monster HP)", ref _showMonsterHpBar, mouse);
+        DrawCheckbox(winX + 20, startY + rowH * 3, "夜间全亮免蜡照明 (No Darkness)", ref _noDarkness, mouse);
+
+        // 4. 底部说明
+        Raylib.DrawRectangle(winX + 2, winY + winH - 32, winW - 4, 30, new Color(25, 20, 16, 255));
+        FontManager.DrawText("点击复选框即时生效 | 畅爽热血征程", winX + 40, winY + winH - 22, 11, Color.Gold);
+    }
+
+    private void DrawCheckbox(int x, int y, string label, ref bool isChecked, Vector2 mouse)
+    {
+        Rectangle boxRect = new(x, y + 2, 18, 18);
+        bool hover = Raylib.CheckCollisionPointRec(mouse, boxRect);
+
+        Raylib.DrawRectangleRec(boxRect, hover ? new Color(50, 40, 30, 240) : new Color(20, 16, 12, 220));
+        Raylib.DrawRectangleLinesEx(boxRect, 1, hover ? Color.Gold : Color.Gray);
+
+        if (isChecked)
+        {
+            FontManager.DrawText("✓", x + 3, y + 2, 14, Color.Lime);
+        }
+
+        FontManager.DrawTextWithShadow(label, x + 28, y + 4, 12, isChecked ? Color.White : Color.LightGray, Color.Black);
+
+        if (hover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            isChecked = !isChecked;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
+    }
+
+    private void RenderExitConfirmDialog(int screenW, int screenH)
+    {
+        int winW = 320;
+        int winH = 160;
+        int winX = (screenW - winW) / 2;
+        int winY = (screenH - winH) / 2;
+
+        Vector2 mouse = Raylib.GetMousePosition();
+
+        // 深曜石金纹弹窗底板
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(18, 15, 12, 250));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, Color.Gold);
+
+        // 标题
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 28, new Color(40, 25, 18, 255));
+        FontManager.DrawTextWithShadow("【系统注销与小退】(Alt+X)", winX + 16, winY + 7, 13, Color.Gold, Color.Black);
+
+        // 提示文字
+        FontManager.DrawTextWithShadow("您是否确认安全返回角色选择界面？", winX + 32, winY + 54, 12, Color.White, Color.Black);
+        FontManager.DrawText("(安全小退将向 OpenMir2 服务端保存角色数据)", winX + 24, winY + 74, 10, Color.LightGray);
+
+        // [确定小退] 按钮
+        Rectangle okBtn = new(winX + 35, winY + 110, 110, 32);
+        bool hoverOk = Raylib.CheckCollisionPointRec(mouse, okBtn);
+        Raylib.DrawRectangleRec(okBtn, hoverOk ? new Color(140, 30, 30, 240) : new Color(80, 20, 20, 220));
+        Raylib.DrawRectangleLinesEx(okBtn, 1, hoverOk ? Color.Yellow : Color.Red);
+        FontManager.DrawText("确定小退", winX + 62, winY + 118, 12, Color.White);
+
+        if (hoverOk && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showExitConfirm = false;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            if (_engine.NetworkSession.IsConnected)
+            {
+                _ = _engine.NetworkSession.SendSoftCloseAsync();
+            }
+            _engine.SwitchToLoginScene();
+            return;
+        }
+
+        // [取消] 按钮
+        Rectangle cancelBtn = new(winX + 175, winY + 110, 110, 32);
+        bool hoverCancel = Raylib.CheckCollisionPointRec(mouse, cancelBtn);
+        Raylib.DrawRectangleRec(cancelBtn, hoverCancel ? new Color(60, 50, 40, 240) : new Color(30, 25, 20, 220));
+        Raylib.DrawRectangleLinesEx(cancelBtn, 1, hoverCancel ? Color.Gold : Color.Gray);
+        FontManager.DrawText("取消", winX + 215, winY + 118, 12, Color.White);
+
+        if (hoverCancel && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showExitConfirm = false;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+        }
     }
 }
 

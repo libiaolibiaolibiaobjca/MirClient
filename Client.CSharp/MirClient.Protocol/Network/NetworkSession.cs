@@ -1864,6 +1864,30 @@ public class NetworkSession : IDisposable
         await SendGamePacketAsync(header, payload);
     }
 
+    public async Task SendBuyItemAsync(int merchantActorId, int menuIndex, string itemName, ushort count = 1)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateBuyItemPacket(merchantActorId, menuIndex, itemName, count);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendSellItemAsync(int merchantActorId, int makeIndex, string itemName, ushort count = 1)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateSellItemPacket(merchantActorId, makeIndex, itemName, count);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendRepairItemAsync(int merchantActorId, int makeIndex, string itemName)
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateRepairItemPacket(merchantActorId, makeIndex, itemName);
+        await SendGamePacketAsync(header, payload);
+    }
+
+    public async Task SendSoftCloseAsync()
+    {
+        var (header, payload) = MerchantEconomyProtocolManager.CreateSoftCloseGamePacket();
+        await SendGamePacketAsync(header, payload);
+    }
+
     public async Task SendOpenDoorAsync(int doorId, int x, int y)
     {
         var (header, payload) = MerchantEconomyProtocolManager.CreateOpenDoorPacket(doorId, x, y);
