@@ -210,6 +210,62 @@ public class GameScene : IScene
         {
             _chatLogs.Add(chatEvt.FormattedText);
         };
+        _engine.NetworkSession.OnBagItems += (actorId, count, payload) =>
+        {
+            _chatLogs.Add($"[背包同步] 角色背包名册已接收，当前共 {count} 件随身物品。");
+        };
+        _engine.NetworkSession.OnActorHit += (actorId, x, y, dir, hitMode) =>
+        {
+            lock (_entities)
+            {
+                var ent = _entities.FirstOrDefault(e => e.RecogId == actorId);
+                if (ent != null)
+                {
+                    ent.Direction = dir;
+                    ent.TriggerAction(HumanActionType.Attack);
+                    SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                }
+            }
+        };
+        _engine.NetworkSession.OnActorStruck += (actorId, x, y, dir) =>
+        {
+            lock (_entities)
+            {
+                var ent = _entities.FirstOrDefault(e => e.RecogId == actorId);
+                if (ent != null)
+                {
+                    ent.Direction = dir;
+                    ent.TriggerAction(HumanActionType.Struck);
+                    SoundManager.Instance.Play(SoundEffectType.MonsterStruck);
+                }
+                else if (actorId == _playerActorId && _playerActorId != 0)
+                {
+                    TriggerStruck();
+                }
+            }
+        };
+        _engine.NetworkSession.OnActorDeath += (actorId, x, y, dir) =>
+        {
+            lock (_entities)
+            {
+                var ent = _entities.FirstOrDefault(e => e.RecogId == actorId);
+                if (ent != null)
+                {
+                    ent.TakeDamage(99999);
+                    _chatLogs.Add($"[世界] 【{ent.Name}】倒地阵亡！");
+                }
+            }
+        };
+        _engine.NetworkSession.OnWinExp += exp =>
+        {
+            _chatLogs.Add($"[战斗胜利] 击败目标，获得角色经验值: +{exp:N0} 点！");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
+        _engine.NetworkSession.OnLevelUp += (newLevel, hp, mp) =>
+        {
+            _chatLogs.Add($"[角色升级] ★★★ 恭喜！角色突破升级至 Lv.{newLevel}！(生命上限: {hp}, 魔法上限: {mp}) ★★★");
+            SoundManager.Instance.Play(SoundEffectType.LevelUp);
+        };
         _engine.NetworkSession.OnGroupMembersChanged += members =>
         {
             GroupManager.Instance.SyncServerMembers(members, _playerName);
@@ -1159,7 +1215,7 @@ public class GameScene : IScene
         float angle = MathF.Atan2(dir.Y, dir.X) * (180.0f / MathF.PI);
         if (angle < 0) angle += 360f;
 
-        _direction = angle switch
+        int newDir = angle switch
         {
             >= 247.5f and < 292.5f => 0, // 上
             >= 292.5f and < 337.5f => 1, // 右上
@@ -1170,6 +1226,22 @@ public class GameScene : IScene
             >= 157.5f and < 202.5f => 6, // 左
             _                      => 7  // 左上
         };
+
+        if (newDir != _direction)
+        {
+            _direction = newDir;
+            if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+            {
+                DefaultMessage turnMsg = new(
+                    ident: ProtocolConsts.CM_TURN,
+                    recog: 0,
+                    param: (ushort)_playerTilePos.X,
+                    tag: (ushort)_playerTilePos.Y,
+                    series: (ushort)_direction
+                );
+                _ = _engine.NetworkSession.SendGatePacketAsync(turnMsg);
+            }
+        }
     }
 
     public void Render()
@@ -1619,6 +1691,12 @@ public class GameScene : IScene
         _motionStep = 0;
         _actionTimer = 0f;
         SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+
+        // 若处于联网模式，向服务端发送 CM_HIT 物理攻击封包
+        if (_engine.NetworkSession != null && _engine.NetworkSession.IsConnected)
+        {
+            _ = _engine.NetworkSession.SendHitAsync((int)_playerTilePos.X, (int)_playerTilePos.Y, (byte)_direction);
+        }
 
         // 攻击积攒合击怒气 (+5)
         HeroManager.Instance.AddFury(5);

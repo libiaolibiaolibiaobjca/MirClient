@@ -4,7 +4,7 @@ using MirClient.Protocol.Resources;
 using MirClient.Runner;
 
 Console.WriteLine("=================================================================");
-Console.WriteLine("  MirClient.CSharp (OpenMir2 跨平台图形游戏客户端引擎)");
+Console.WriteLine("  MirClient.CSharp (OpenMir2 经典官方原生客户端引擎)");
 Console.WriteLine("=================================================================");
 
 // 1. 读取同目录 config.ini (若不存在则自动生成一份标准模板)
