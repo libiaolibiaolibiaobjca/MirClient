@@ -45,6 +45,12 @@ public class GameEngine : IDisposable
         // 初始化原生硬件音频桥接设备
         AudioBridge.Initialize();
 
+        // 若配置中指定全屏，则切入全屏模式
+        if (_config.FullScreen && !Raylib.IsWindowFullscreen())
+        {
+            Raylib.ToggleFullscreen();
+        }
+
         _isRunning = true;
         _currentScene.Init();
 
@@ -55,6 +61,19 @@ public class GameEngine : IDisposable
         while (!Raylib.WindowShouldClose() && _isRunning)
         {
             float dt = Raylib.GetFrameTime();
+
+            // 响应全屏切换热键: Alt + Enter (Windows 官方标准)
+            bool isAltPressed = Raylib.IsKeyDown(KeyboardKey.LeftAlt) || Raylib.IsKeyDown(KeyboardKey.RightAlt);
+            if (isAltPressed && Raylib.IsKeyPressed(KeyboardKey.Enter))
+            {
+                ToggleFullscreen();
+            }
+
+            // 监听窗口缩放或全屏切换带来的视口分辨率变化
+            if (Raylib.IsWindowResized())
+            {
+                _currentScene.OnResize(Raylib.GetScreenWidth(), Raylib.GetScreenHeight());
+            }
 
             // 处理后台网络事件
             while (_networkEvents.TryDequeue(out string? evt))
@@ -78,6 +97,18 @@ public class GameEngine : IDisposable
     {
         _currentScene = _gameScene;
         _currentScene.Init();
+    }
+
+    /// <summary>
+    /// 切换窗口化与全屏显示模式 (支持 Alt + Enter 快捷键触发)
+    /// </summary>
+    public void ToggleFullscreen()
+    {
+        Raylib.ToggleFullscreen();
+        _config.FullScreen = Raylib.IsWindowFullscreen();
+        int curW = Raylib.GetScreenWidth();
+        int curH = Raylib.GetScreenHeight();
+        _currentScene.OnResize(curW, curH);
     }
 
     public void SwitchToLoginScene()

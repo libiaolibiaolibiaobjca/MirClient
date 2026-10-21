@@ -3923,6 +3923,19 @@ public class GameScene : IScene
         int mapX = screenW - mapW - 12;
         int mapY = 12;
 
+        // 右上角全屏切换快捷按钮 (亦可随时按 Alt + Enter 切换)
+        int fsBtnX = _showMiniMap ? (mapX - 78) : (screenW - 175);
+        Rectangle btnFs = new(fsBtnX, 12, 72, 24);
+        bool hoverFs = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), btnFs);
+        Raylib.DrawRectangleRec(btnFs, hoverFs ? new Color(90, 65, 35, 230) : new Color(18, 14, 12, 230));
+        Raylib.DrawRectangleLinesEx(btnFs, 1, hoverFs ? Color.Gold : new Color(120, 95, 45, 220));
+        string fsText = Raylib.IsWindowFullscreen() ? "🗗 窗口" : "⛶ 全屏";
+        FontManager.DrawText(fsText, fsBtnX + 10, 17, 11, hoverFs ? Color.Yellow : Color.LightGray);
+        if (hoverFs && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _engine.ToggleFullscreen();
+        }
+
         if (!_showMiniMap)
         {
             // 折叠状态：右上角显示精美迷你唤醒按钮

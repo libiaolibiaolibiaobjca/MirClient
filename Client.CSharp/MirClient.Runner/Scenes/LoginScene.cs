@@ -500,6 +500,18 @@ public class LoginScene : IScene
         string netText = online ? $"网络在线: {_config.ServerAddr}:{_config.ServerPort} (通畅)" : $"正在连接: {_config.ServerAddr}:{_config.ServerPort}...";
         FontManager.DrawTextWithShadow(netText, 34, 15, 16, online ? Color.Lime : Color.LightGray, Color.Black);
 
+        // 右上角【全屏切换】按钮
+        Rectangle btnFs = new(screenW - 250, 12, 110, 28);
+        bool hoverFs = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), btnFs);
+        Raylib.DrawRectangleRec(btnFs, hoverFs ? new Color(90, 65, 35, 230) : new Color(35, 30, 25, 210));
+        Raylib.DrawRectangleLinesEx(btnFs, 1, hoverFs ? Color.Yellow : Color.Gold);
+        string fsText = Raylib.IsWindowFullscreen() ? "🗗 窗口化" : "⛶ 全屏显示";
+        FontManager.DrawTextWithShadow(fsText, screenW - 240, 17, 14, Color.Gold, Color.Black);
+        if (hoverFs && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _engine.ToggleFullscreen();
+        }
+
         // 右上角【服务器设置】按钮
         Rectangle btnCfg = new(screenW - 130, 12, 114, 28);
         bool hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), btnCfg);
