@@ -56,6 +56,9 @@ public class GameScene : IScene
     private bool _showSiegeWindow = false;
     private bool _showSocialWindow = false;
     private int _socialTab = 0; // 0: 我的好友, 1: 师门武馆
+    private bool _showSkillWindow = false; // F11 经典原版技能/魔法属性面板
+    private int _hoveredMagicId = 0;
+    private int _skillScrollOffset = 0;
 
     // 鼠标双击检测时钟
     private double _lastBagClickTime = 0;
@@ -571,43 +574,39 @@ public class GameScene : IScene
 
         HandleInput(dt);
 
-        // F11 实时切换 16 位颜色解码模式
+        // F11 切换官方原版经典技能/魔法属性面板
         if (Raylib.IsKeyPressed(KeyboardKey.F11))
         {
-            WilLoader.ActiveColorMode = (ColorDecodeMode)(((int)WilLoader.ActiveColorMode + 1) % 4);
-            AssetManager.ClearTextures();
-            string modeDesc = WilLoader.ActiveColorMode switch
-            {
-                ColorDecodeMode.Bgr565 => "模式 0: 盛大原版官方正统 (实测 100% 正确真值)",
-                ColorDecodeMode.Rgb565 => "模式 1: 备用 RGB565 (高5位 Red, 低5位 Blue)",
-                ColorDecodeMode.BigEndianRgb => "模式 2: 备用大端序 RGB565 (字节对调, 高5位 Red)",
-                ColorDecodeMode.BigEndianBgr => "模式 3: 备用大端序 BGR565 (字节对调, 高5位 Blue)",
-                _ => ""
-            };
-            _chatLogs.Add($"[色彩切换] 已切换至 -> {modeDesc}");
-            Console.WriteLine($"[色彩切换] {modeDesc}");
+            _showSkillWindow = !_showSkillWindow;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
         }
 
-        // 战斗交互与热键 (空格攻击, F1~F4 技能, 1~6 快捷腰带嗑药)
+        // 鼠标悬停技能面板按 Delete 或 Backspace 解除快捷键绑定
+        if (_showSkillWindow && _hoveredMagicId > 0 && (Raylib.IsKeyPressed(KeyboardKey.Delete) || Raylib.IsKeyPressed(KeyboardKey.Backspace)))
+        {
+            int boundSlot = CharacterMagicManager.Instance.GetBoundSlot((ushort)_hoveredMagicId);
+            if (boundSlot >= 0)
+            {
+                CharacterMagicManager.Instance.UnbindSlot(boundSlot);
+                string sName = MagicProtocolManager.GetMagicName(_hoveredMagicId);
+                _chatLogs.Add($"[快捷键设置] 已解除【{sName}】的快捷键绑定");
+                SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+
+                if (_engine.NetworkSession.IsConnected)
+                {
+                    _ = _engine.NetworkSession.SendMagicKeyChangeAsync((ushort)_hoveredMagicId, 255);
+                }
+            }
+        }
+
+        // 战斗交互与热键 (空格物理攻击, F1~F8 技能施放与设键, 1~6 快捷腰带嗑药)
         if (Raylib.IsKeyPressed(KeyboardKey.Space) || (Raylib.IsKeyDown(KeyboardKey.LeftShift) && Raylib.IsMouseButtonPressed(MouseButton.Left)))
         {
             TriggerAttack();
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.F1))
+        else if (CheckSkillHotkeys())
         {
-            CastSkill(SkillType.ThunderBolt);
-        }
-        else if (Raylib.IsKeyPressed(KeyboardKey.F2))
-        {
-            CastSkill(SkillType.FireSword);
-        }
-        else if (Raylib.IsKeyPressed(KeyboardKey.F3))
-        {
-            CastSkill(SkillType.Healing);
-        }
-        else if (Raylib.IsKeyPressed(KeyboardKey.F4))
-        {
-            CastSkill(SkillType.Fireball);
+            // 已在 CheckSkillHotkeys 处理了 F1~F8 的设键与施法
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.One))
         {
@@ -1087,10 +1086,11 @@ public class GameScene : IScene
                 _activeNpc = null;
                 _activeNpcProfile = null;
             }
-            else if (_showBag || _showEquip)
+            else if (_showBag || _showEquip || _showSkillWindow)
             {
                 _showBag = false;
                 _showEquip = false;
+                _showSkillWindow = false;
             }
             else
             {
@@ -1261,14 +1261,15 @@ public class GameScene : IScene
         // 3. 渲染右上角小地图
         RenderMiniMap(screenW);
 
-        // 4. 左上角显示当前色彩解码模式及 [F11] 切换指引 (带半透明背景框，防树木遮挡)
-        string modeStr = $"[F11: 切换色彩模式] 当前: {(int)WilLoader.ActiveColorMode} - {WilLoader.ActiveColorMode}";
-        Raylib.DrawRectangle(8, 8, 380, 24, new Color(0, 0, 0, 200));
-        FontManager.DrawTextWithShadow(modeStr, 14, 13, 12, Color.Gold, Color.Black);
+        // 4. 左上角显示经典热键指引 (带半透明背景框，防树木遮挡)
+        string tipStr = "[F9: 包裹] [F10: 状态] [F11: 技能魔法] [Alt+Enter: 全屏]";
+        Raylib.DrawRectangle(8, 8, 410, 24, new Color(0, 0, 0, 200));
+        FontManager.DrawTextWithShadow(tipStr, 14, 13, 12, Color.Gold, Color.Black);
 
-        // 5. 渲染 F9 背包物品栏与 F10 角色装备状态窗口
+        // 5. 渲染 F9 背包物品栏、F10 角色装备状态窗口、F11 技能魔法属性面板
         if (_showBag) RenderInventoryWindow(screenW, screenH);
         if (_showEquip) RenderEquipmentWindow(screenW, screenH);
+        if (_showSkillWindow) RenderSkillWindow(screenW, screenH);
 
         // 5.1 渲染左侧常驻队伍成员浮窗
         if (GroupManager.Instance.HasGroup)
@@ -1777,143 +1778,259 @@ public class GameScene : IScene
         _actionTimer = 0f;
     }
 
-    private void CastSkill(SkillType type)
+    private bool CheckSkillHotkeys()
     {
-        var skill = Skill.GetSkill(type);
-
-        // 1. 冷却校验 (独立技能冷却与公共后摇 GCD)
-        if (!_skillCd.CanCast(type, out float remainTime))
+        for (int i = 0; i < 8; i++)
         {
-            _chatLogs.Add($"[技能] 【{skill.Name}】冷却中，还需 {remainTime:F1} 秒！");
+            KeyboardKey key = KeyboardKey.F1 + i;
+            if (Raylib.IsKeyPressed(key))
+            {
+                // 若技能属性面板打开，且鼠标悬停在某个技能项上，则直接设键绑定！
+                if (_showSkillWindow && _hoveredMagicId > 0)
+                {
+                    CharacterMagicManager.Instance.BindKey(i, (ushort)_hoveredMagicId);
+                    string sName = MagicProtocolManager.GetMagicName(_hoveredMagicId);
+                    _chatLogs.Add($"[快捷键设置] 已将【{sName}】绑定至快捷键 [F{i + 1}]");
+                    SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+
+                    // 同步发送 CM_MAGICKEYCHANGE 至 OpenMir2 服务端
+                    if (_engine.NetworkSession.IsConnected)
+                    {
+                        _ = _engine.NetworkSession.SendMagicKeyChangeAsync((ushort)_hoveredMagicId, (byte)i);
+                    }
+                    return true;
+                }
+
+                // 否则触发对应槽位的技能施放
+                CastSlotSkill(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void CastSlotSkill(int slot)
+    {
+        var magic = CharacterMagicManager.Instance.GetMagicBySlot(slot);
+        if (magic == null)
+        {
+            _chatLogs.Add($"[技能] 快捷键 [F{slot + 1}] 尚未绑定任何技能，请按 F11 打开技能面板绑定！");
+            return;
+        }
+
+        ushort magicId = magic.Def.MagicId;
+        string skillName = string.IsNullOrEmpty(magic.Def.MagicName) ? MagicProtocolManager.GetMagicName(magicId) : magic.Def.MagicName;
+        int requiredMp = magic.Def.Spell;
+
+        // 1. 冷却校验
+        if (!CharacterMagicManager.Instance.CanCast(magicId, Raylib.GetTime(), out float remainSec))
+        {
+            _chatLogs.Add($"[技能] 【{skillName}】冷却中，还需 {remainSec:F1} 秒！");
             return;
         }
 
         // 2. 魔法值 (MP) 校验
-        if (_mp < skill.RequiredMp)
+        if (_mp < requiredMp)
         {
-            _chatLogs.Add($"[技能] 魔法值不足！施展【{skill.Name}】需要 {skill.RequiredMp} 点 MP (当前: {(int)_mp})");
+            _chatLogs.Add($"[技能] 魔法值不足！施展【{skillName}】需要 {requiredMp} 点 MP (当前: {(int)_mp})");
             return;
         }
 
         // 3. 触发冷却并扣除 MP
-        _skillCd.TriggerCooldown(type);
-        _mp = Math.Clamp(_mp - skill.RequiredMp, 0, MAX_MP);
+        CharacterMagicManager.Instance.TriggerCooldown(magicId, Raylib.GetTime());
+        _mp = Math.Clamp(_mp - requiredMp, 0, MAX_MP);
+
+        // 判断动作姿态: 战士近战刀法则为 Attack 动作，法道咒语为 Spell 动作
+        bool isAttackAction = magicId switch
+        {
+            3 or 7 or 12 or 25 or 26 or 43 or 74 => true,
+            _ => false
+        };
+
         _targetTilePos = _playerTilePos;
-        _currentAction = (type == SkillType.FireSword) ? HumanActionType.Attack : HumanActionType.Spell;
+        _currentAction = isAttackAction ? HumanActionType.Attack : HumanActionType.Spell;
         _motionStep = 0;
         _actionTimer = 0f;
 
         Vector2 frontTile = MapEntity.GetFrontTile(_playerTilePos, _direction);
+        MapEntity? targetEntity = FindNearestMonster(frontTile, 6f);
+        Vector2 targetTile = targetEntity != null ? targetEntity.TilePos : frontTile;
+        int targetId = targetEntity != null ? (int)targetEntity.RecogId : 0;
 
-        // 4. 若处于联机状态，向 OpenMir2 7200 网关发送 CM_SPELL 施法封包
+        // 4. 发送 OpenMir2 CM_SPELL 施法封包
         if (_engine.NetworkSession.IsConnected)
         {
-            int magicId = type switch
-            {
-                SkillType.ThunderBolt => (int)MagicType.Thunder,
-                SkillType.FireSword => (int)MagicType.FireSword,
-                SkillType.Healing => (int)MagicType.Healing,
-                SkillType.Fireball => (int)MagicType.Fireball,
-                _ => (int)MagicType.Fireball
-            };
-
-            Vector2 targetTile = frontTile;
-            int targetId = 0;
-            MapEntity? nearest = FindNearestMonster(frontTile, 6f);
-            if (nearest != null)
-            {
-                targetTile = nearest.TilePos;
-                targetId = (int)nearest.RecogId;
-            }
-            _ = _engine.NetworkSession.SendSpellAsync(magicId, (int)targetTile.X, (int)targetTile.Y, targetId);
+            _ = _engine.NetworkSession.SendSpellAsync((int)magicId, (int)targetTile.X, (int)targetTile.Y, targetId);
         }
 
-        switch (type)
+        // 5. 触发对应法术视觉特效与音效
+        TriggerMagicEffect(magicId, skillName, frontTile, targetTile, targetEntity, magic.Def);
+    }
+
+    private void TriggerMagicEffect(ushort magicId, string skillName, Vector2 frontTile, Vector2 targetTile, MapEntity? target, MagicInfoData def)
+    {
+        switch (magicId)
         {
-            case SkillType.ThunderBolt:
+            case 11 or 91: // 雷电术 / 四级雷电术
             {
                 SoundManager.Instance.Play(SoundEffectType.Thunder);
-                MapEntity? target = FindNearestMonster(frontTile, 6f);
-                Vector2 strikePos = target != null ? target.TilePos : _playerTilePos + (_direction switch
+                _skillFx.SpawnThunder(targetTile);
+                _chatLogs.Add($"[法术] 念动咒语，召唤九天神雷轰击【{(int)targetTile.X},{(int)targetTile.Y}】！");
+                if (target != null && Vector2.Distance(target.TilePos, targetTile) < 1.2f)
                 {
-                    0 => new Vector2(0, -2),
-                    1 => new Vector2(2, -2),
-                    2 => new Vector2(2, 0),
-                    3 => new Vector2(2, 2),
-                    4 => new Vector2(0, 2),
-                    5 => new Vector2(-2, 2),
-                    6 => new Vector2(-2, 0),
-                    _ => new Vector2(-2, -2)
-                });
-
-                _skillFx.SpawnThunder(strikePos);
-                _chatLogs.Add($"[法术] 念动咒语，召唤九天神雷轰击【{strikePos.X:F0},{strikePos.Y:F0}】！");
-
-                if (target != null && Vector2.Distance(target.TilePos, strikePos) < 1.0f)
-                {
-                    int dmg = Random.Shared.Next(skill.MinPower, skill.MaxPower + 1);
-                    ApplyMonsterDamage(target, dmg, skill.Name);
+                    int dmg = Random.Shared.Next(def.Power > 0 ? def.Power : 45, def.MaxPower > 0 ? def.MaxPower : 75);
+                    ApplyMonsterDamage(target, dmg, skillName);
                 }
                 break;
             }
 
-            case SkillType.FireSword:
+            case 26: // 烈火剑法
             {
                 SoundManager.Instance.Play(SoundEffectType.FireSword);
                 _skillFx.SpawnFireSword(frontTile, _direction);
                 _chatLogs.Add($"[武技] 挥出烈火剑法，极度炙热的烈焰剑气撕裂空气！");
-
-                MapEntity? target = null;
-                lock (_entities)
+                if (target != null && Vector2.Distance(target.TilePos, frontTile) < 1.2f)
                 {
-                    target = _entities.FirstOrDefault(e => !e.IsDead && Vector2.Distance(e.TilePos, frontTile) < 1.1f);
-                }
-                if (target != null)
-                {
-                    int dmg = (int)(Random.Shared.Next(skill.MinPower, skill.MaxPower + 1) + (_inv.TotalMaxDc * 1.5f));
-                    ApplyMonsterDamage(target, dmg, skill.Name);
+                    int dmg = (int)(Random.Shared.Next(50, 85) + (_inv.TotalMaxDc * 1.5f));
+                    ApplyMonsterDamage(target, dmg, skillName);
                 }
                 break;
             }
 
-            case SkillType.Healing:
+            case 12 or 89: // 刺杀剑术 / 四级刺杀
+            {
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                _skillFx.SpawnAssassinate(_playerTilePos, _direction);
+                _chatLogs.Add($"[武技] 施展刺杀剑术，两格破防雪亮剑气穿云破石！");
+                if (target != null && Vector2.Distance(target.TilePos, frontTile) < 2.2f)
+                {
+                    int dmg = (int)(Random.Shared.Next(35, 60) + (_inv.TotalMaxDc * 1.1f));
+                    ApplyMonsterDamage(target, dmg, skillName);
+                }
+                break;
+            }
+
+            case 25 or 90: // 半月弯刀 / 四级半月
+            {
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                _skillFx.SpawnHalfMoon(_playerTilePos, _direction);
+                _chatLogs.Add($"[武技] 挥展半月弯刀，金色弧形圆刃横扫前方扇形群怪！");
+                lock (_entities)
+                {
+                    foreach (var m in _entities.Where(e => !e.IsDead && e.Type == EntityType.Monster && Vector2.Distance(e.TilePos, frontTile) < 2.2f))
+                    {
+                        int dmg = (int)(Random.Shared.Next(30, 50) + _inv.TotalMaxDc);
+                        ApplyMonsterDamage(m, dmg, skillName);
+                    }
+                }
+                break;
+            }
+
+            case 2 or 29: // 治愈术 / 群体治疗术
             {
                 SoundManager.Instance.Play(SoundEffectType.Heal);
                 _skillFx.SpawnHealing(_playerTilePos);
-                int heal = 60;
+                int heal = def.Power > 0 ? def.Power : 60;
                 _hp = Math.Clamp(_hp + heal, 0, MAX_HP);
-                _chatLogs.Add($"[道术] 施展神圣治愈术，圣洁辉光笼罩全身，生命值 +{heal}！(HP: {(int)_hp}/{(int)MAX_HP})");
+                _chatLogs.Add($"[道术] 施展【{skillName}】，神圣辉光笼罩全身，生命值 +{heal}！(HP: {(int)_hp}/{(int)MAX_HP})");
                 break;
             }
 
-            case SkillType.Fireball:
+            case 1 or 5: // 火球术 / 大火球
             {
                 SoundManager.Instance.Play(SoundEffectType.Fireball);
-                MapEntity? target = FindNearestMonster(frontTile, 6f);
-                Vector2 targetPos = target != null ? target.TilePos : _playerTilePos + (_direction switch
-                {
-                    0 => new Vector2(0, -3),
-                    1 => new Vector2(3, -3),
-                    2 => new Vector2(3, 0),
-                    3 => new Vector2(3, 3),
-                    4 => new Vector2(0, 3),
-                    5 => new Vector2(-3, 3),
-                    6 => new Vector2(-3, 0),
-                    _ => new Vector2(-3, -3)
-                });
-
                 _chatLogs.Add($"[法术] 凝聚炙热大火球射向目标！");
-                _skillFx.SpawnFireball(_playerTilePos, targetPos, () =>
+                _skillFx.SpawnFireball(_playerTilePos, targetTile, () =>
                 {
-                    if (target != null && !target.IsDead && Vector2.Distance(target.TilePos, targetPos) < 1.2f)
+                    if (target != null && !target.IsDead && Vector2.Distance(target.TilePos, targetTile) < 1.2f)
                     {
-                        int dmg = Random.Shared.Next(skill.MinPower, skill.MaxPower + 1);
-                        ApplyMonsterDamage(target, dmg, skill.Name);
+                        int dmg = Random.Shared.Next(def.Power > 0 ? def.Power : 20, def.MaxPower > 0 ? def.MaxPower : 40);
+                        ApplyMonsterDamage(target, dmg, skillName);
                     }
                 });
                 break;
             }
+
+            case 13: // 灵魂火符
+            {
+                SoundManager.Instance.Play(SoundEffectType.Fireball);
+                _chatLogs.Add($"[道术] 飞祭出八卦降魔灵符！");
+                _skillFx.SpawnSoulCharm(_playerTilePos, targetTile, () =>
+                {
+                    if (target != null && !target.IsDead && Vector2.Distance(target.TilePos, targetTile) < 1.2f)
+                    {
+                        int dmg = Random.Shared.Next(35, 65);
+                        ApplyMonsterDamage(target, dmg, skillName);
+                    }
+                });
+                break;
+            }
+
+            case 22: // 火墙
+            {
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                _skillFx.SpawnFireWall(targetTile, 15f);
+                _chatLogs.Add($"[法术] 在坐标【{(int)targetTile.X},{(int)targetTile.Y}】布下一道持续燃烧的烈焰火海！");
+                break;
+            }
+
+            case 31 or 66: // 魔法盾 / 四级魔法盾
+            {
+                SoundManager.Instance.Play(SoundEffectType.Teleport);
+                _skillFx.SpawnMagicShield(_playerTilePos, 20f);
+                _chatLogs.Add($"[法术] 开启【{skillName}】！周身升起金色椭圆光盾，大幅抵消所受创伤！");
+                break;
+            }
+
+            case 33: // 冰咆哮
+            {
+                SoundManager.Instance.Play(SoundEffectType.Thunder);
+                _skillFx.SpawnIceRoar(targetTile);
+                _chatLogs.Add($"[法术] 呼唤极寒暴风雪，漫天冰晶霜暴重创【{(int)targetTile.X},{(int)targetTile.Y}】范围敌人！");
+                lock (_entities)
+                {
+                    foreach (var m in _entities.Where(e => !e.IsDead && e.Type == EntityType.Monster && Vector2.Distance(e.TilePos, targetTile) < 2.0f))
+                    {
+                        int dmg = Random.Shared.Next(55, 95);
+                        ApplyMonsterDamage(m, dmg, skillName);
+                    }
+                }
+                break;
+            }
+
+            case 6 or 48: // 施毒术 / 群体施毒术
+            {
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                _skillFx.SpawnPoisonMist(targetTile, false);
+                _chatLogs.Add($"[道术] 祭出五毒奇药，暗绿剧毒烟雾迅速侵蚀目标肌体！");
+                if (target != null && Vector2.Distance(target.TilePos, targetTile) < 1.5f)
+                {
+                    ApplyMonsterDamage(target, 20, skillName);
+                }
+                break;
+            }
+
+            default:
+            {
+                SoundManager.Instance.Play(SoundEffectType.AttackSwing);
+                _chatLogs.Add($"[技能] 成功施展法术【{skillName}】！");
+                break;
+            }
         }
+    }
+
+    private void CastSkill(SkillType type)
+    {
+        // 兼容接口
+        int slot = type switch
+        {
+            SkillType.ThunderBolt => 0,
+            SkillType.FireSword => 1,
+            SkillType.Healing => 2,
+            SkillType.Fireball => 3,
+            _ => 0
+        };
+        CastSlotSkill(slot);
     }
 
     private MapEntity? FindNearestMonster(Vector2 nearPos, float maxDist)
@@ -2375,13 +2492,11 @@ public class GameScene : IScene
 
     private void RenderSkillAndFuncButtons(int boardX, int boardY)
     {
-        // 1. F1 ~ F8 技能快捷栏：精准嵌合右上方雕花凹槽 (StartX 对齐 502，彻底避开聊天框)
+        // 1. F1 ~ F8 技能快捷栏：精准嵌合右上方雕花凹槽，动态联动角色技能库与 F11 技能面板
         int slotSize = 32;
         int slotSpacing = 3;
         int slotsStartX = boardX + 502;
         int slotsY = boardY + 12;
-        string[] skillNames = { "雷电", "烈火", "治愈", "火球", "半月", "刺杀", "逐日", "随机" };
-        SkillType?[] slotSkills = { SkillType.ThunderBolt, SkillType.FireSword, SkillType.Healing, SkillType.Fireball, null, null, null, null };
 
         Vector2 mousePos = Raylib.GetMousePosition();
 
@@ -2395,25 +2510,24 @@ public class GameScene : IScene
             Raylib.DrawRectangleLinesEx(slotRect, 1, isHover ? Color.Gold : new Color(110, 90, 45, 220));
 
             FontManager.DrawText($"F{i + 1}", slotX + 2, slotsY + 2, 10, isHover ? Color.Yellow : Color.Orange);
-            int skillW = FontManager.MeasureText(skillNames[i], 11);
-            FontManager.DrawText(skillNames[i], slotX + (slotSize - skillW) / 2, slotsY + 15, 11, isHover ? Color.White : Color.Yellow);
 
-            // 顺时针半透明阴影转圈遮罩与倒计时跳字
-            if (slotSkills[i].HasValue)
+            var boundMagic = CharacterMagicManager.Instance.GetMagicBySlot(i);
+            string skillLabel = boundMagic != null
+                ? (boundMagic.Def.MagicName.Length > 2 ? boundMagic.Def.MagicName[..2] : boundMagic.Def.MagicName)
+                : "--";
+
+            int skillW = FontManager.MeasureText(skillLabel, 11);
+            Color textCol = boundMagic != null ? (isHover ? Color.White : Color.Yellow) : Color.DarkGray;
+            FontManager.DrawText(skillLabel, slotX + (slotSize - skillW) / 2, slotsY + 15, 11, textCol);
+
+            // 冷却遮罩与倒计时跳字
+            if (boundMagic != null)
             {
-                var sType = slotSkills[i]!.Value;
-                float progress = _skillCd.GetCooldownProgress(sType);
-                float remain = _skillCd.GetRemainTime(sType);
-
-                if (progress > 0f)
+                if (!CharacterMagicManager.Instance.CanCast(boundMagic.Def.MagicId, Raylib.GetTime(), out float remain) && remain > 0f)
                 {
-                    Vector2 slotCenter = new(slotX + slotSize / 2f, slotsY + slotSize / 2f);
-                    float startAngle = -90f;
-                    float sweepAngle = 360f * progress;
-                    Raylib.DrawCircleSector(slotCenter, slotSize * 0.72f, startAngle, startAngle + sweepAngle, 16, new Color(0, 0, 0, 190));
-
                     string cdStr = remain >= 1.0f ? $"{remain:F0}s" : $"{remain:F1}s";
                     int cdW = FontManager.MeasureText(cdStr, 11);
+                    Raylib.DrawRectangleRec(slotRect, new Color(0, 0, 0, 180));
                     FontManager.DrawTextWithShadow(cdStr, slotX + (slotSize - cdW) / 2, slotsY + 14, 11, Color.Yellow, Color.Black);
                 }
             }
@@ -2421,14 +2535,7 @@ public class GameScene : IScene
             // 支持鼠标左键点击快捷栏施法
             if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
             {
-                if (slotSkills[i].HasValue)
-                {
-                    CastSkill(slotSkills[i]!.Value);
-                }
-                else
-                {
-                    _chatLogs.Add($"[技能] 快捷槽 F{i + 1} 暂未装配技能。");
-                }
+                CastSlotSkill(i);
             }
         }
 
@@ -4324,8 +4431,37 @@ public class GameScene : IScene
 
             case ProtocolConsts.SM_SENDMYMAGIC:
             {
-                string dec = EDCode.DecodeText(payload);
-                _chatLogs.Add($"[技能系统] 已同步技能树与已习得法术 (技能包数: {header.Series})");
+                var magicList = MagicProtocolManager.ParseSendMyMagic(payload);
+                if (magicList.Count > 0)
+                {
+                    CharacterMagicManager.Instance.SetServerMagics(magicList);
+                    _chatLogs.Add($"[技能系统] 已从服务端同步掌握的法术 (共 {magicList.Count} 项，按 F11 查阅)");
+                }
+                else
+                {
+                    _chatLogs.Add($"[技能系统] 服务端同步法术数据已就绪 (技能数: {header.Series})");
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_ADDMAGIC:
+            {
+                var added = MagicProtocolManager.ParseAddMagic(payload);
+                if (added != null)
+                {
+                    CharacterMagicManager.Instance.AddOrUpdateMagic(added);
+                    string mName = string.IsNullOrEmpty(added.Def.MagicName) ? MagicProtocolManager.GetMagicName(added.Def.MagicId) : added.Def.MagicName;
+                    _chatLogs.Add($"[技能系统] ★★★ 领悟新法术【{mName}】！按 F11 打开技能面板绑定快捷键 ★★★");
+                    SoundManager.Instance.Play(SoundEffectType.LevelUp);
+                }
+                break;
+            }
+
+            case ProtocolConsts.SM_DELMAGIC:
+            {
+                ushort delMagicId = (ushort)header.Recog;
+                CharacterMagicManager.Instance.RemoveMagic(delMagicId);
+                _chatLogs.Add($"[技能系统] 已遗忘法术 ID: {delMagicId}");
                 break;
             }
 
@@ -7368,6 +7504,140 @@ public class GameScene : IScene
                 }
             }
         }
+    }
+
+    private void RenderSkillWindow(int screenW, int screenH)
+    {
+        int winW = 360;
+        int winH = 430;
+        int winX = 60; // 靠左侧显示，不遮挡中央战斗视野
+        int winY = (screenH - winH) / 2;
+
+        _hoveredMagicId = 0;
+        Vector2 mouse = Raylib.GetMousePosition();
+
+        // 1. 深曜石金纹经典底板
+        Raylib.DrawRectangle(winX, winY, winW, winH, new Color(18, 15, 12, 245));
+        Raylib.DrawRectangleLinesEx(new Rectangle(winX, winY, winW, winH), 2, Color.Gold);
+
+        // 2. 标题栏
+        Raylib.DrawRectangle(winX + 2, winY + 2, winW - 4, 30, new Color(38, 28, 20, 255));
+        FontManager.DrawTextWithShadow("【技能与魔法属性】(F11)", winX + 16, winY + 8, 14, Color.Gold, Color.Black);
+
+        // 关闭按钮 [X]
+        Rectangle closeRect = new(winX + winW - 32, winY + 6, 22, 20);
+        bool hoverClose = Raylib.CheckCollisionPointRec(mouse, closeRect);
+        Raylib.DrawRectangleRec(closeRect, hoverClose ? Color.Red : new Color(60, 20, 20, 220));
+        FontManager.DrawText("X", winX + winW - 25, winY + 8, 12, Color.White);
+        if (hoverClose && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _showSkillWindow = false;
+            SoundManager.Instance.Play(SoundEffectType.ButtonClick);
+            return;
+        }
+
+        // 3. 技能列表区域
+        var magics = CharacterMagicManager.Instance.GetAllMagics();
+        int itemH = 52;
+        int listY = winY + 38;
+        int maxVisible = 6;
+
+        // 滚轮支持
+        float wheel = Raylib.GetMouseWheelMove();
+        if (wheel > 0 && _skillScrollOffset > 0) _skillScrollOffset--;
+        if (wheel < 0 && (_skillScrollOffset + maxVisible) < magics.Count) _skillScrollOffset++;
+
+        for (int i = 0; i < maxVisible && (i + _skillScrollOffset) < magics.Count; i++)
+        {
+            var magic = magics[i + _skillScrollOffset];
+            ushort mId = magic.Def.MagicId;
+            int rowY = listY + i * (itemH + 4);
+            Rectangle rowRect = new(winX + 10, rowY, winW - 20, itemH);
+            bool hoverRow = Raylib.CheckCollisionPointRec(mouse, rowRect);
+
+            if (hoverRow)
+            {
+                _hoveredMagicId = mId;
+            }
+
+            // 行背景与高亮
+            Raylib.DrawRectangleRec(rowRect, hoverRow ? new Color(55, 42, 28, 220) : new Color(28, 24, 20, 200));
+            Raylib.DrawRectangleLinesEx(rowRect, 1, hoverRow ? Color.Gold : new Color(90, 75, 55, 180));
+
+            // 职业标签: 0战(红), 1法(蓝), 2道(绿)
+            string jobTag = magic.Def.Job switch { 0 => "[战]", 1 => "[法]", 2 => "[道]", _ => "[通]" };
+            Color jobCol = magic.Def.Job switch { 0 => new Color(255, 100, 100, 255), 1 => new Color(100, 180, 255, 255), 2 => new Color(100, 255, 140, 255), _ => Color.LightGray };
+            FontManager.DrawText(jobTag, winX + 16, rowY + 8, 12, jobCol);
+
+            // 技能名与等级
+            string mName = string.IsNullOrEmpty(magic.Def.MagicName) ? MagicProtocolManager.GetMagicName(mId) : magic.Def.MagicName;
+            FontManager.DrawTextWithShadow(mName, winX + 48, rowY + 7, 13, Color.White, Color.Black);
+            FontManager.DrawText($"Lv.{magic.Level}", winX + 148, rowY + 8, 11, Color.Gold);
+
+            // 快捷键徽章: 如 [F1]
+            int boundSlot = CharacterMagicManager.Instance.GetBoundSlot(mId);
+            string keyStr = boundSlot >= 0 ? $"[F{boundSlot + 1}]" : "[未设]";
+            Color keyCol = boundSlot >= 0 ? Color.Lime : Color.Gray;
+            FontManager.DrawText(keyStr, winX + winW - 68, rowY + 8, 12, keyCol);
+
+            // MP 消耗与基础威力
+            string mpText = $"消耗: {magic.Def.Spell} MP";
+            FontManager.DrawText(mpText, winX + 48, rowY + 28, 10, Color.LightGray);
+
+            // 修炼进度条 (当前点数 / 本级所需点数)
+            int maxTrain = (magic.Level < magic.Def.MaxTrain.Length && magic.Def.MaxTrain[magic.Level] > 0)
+                ? magic.Def.MaxTrain[magic.Level]
+                : 1000;
+            float trainRate = Math.Clamp((float)magic.CurTrain / maxTrain, 0f, 1f);
+            int barW = 120;
+            int barH = 7;
+            int barX = winX + 148;
+            int barY = rowY + 31;
+            Raylib.DrawRectangle(barX, barY, barW, barH, new Color(10, 10, 10, 200));
+            Raylib.DrawRectangle(barX, barY, (int)(barW * trainRate), barH, Color.Green);
+            Raylib.DrawRectangleLines(barX, barY, barW, barH, Color.DarkGray);
+            FontManager.DrawText($"{magic.CurTrain}/{maxTrain}", barX + barW + 8, barY - 2, 9, Color.DarkGray);
+        }
+
+        // 4. 底部快捷设置操作说明
+        Raylib.DrawRectangle(winX + 2, winY + winH - 36, winW - 4, 34, new Color(25, 20, 16, 255));
+        FontManager.DrawText("【悬停技能按 F1~F8 设快捷键 | Del 解绑】", winX + 18, winY + winH - 24, 11, Color.Gold);
+
+        // 5. 悬停提示 Tooltip
+        if (_hoveredMagicId > 0)
+        {
+            var hMagic = magics.FirstOrDefault(m => m.Def.MagicId == _hoveredMagicId);
+            if (hMagic != null)
+            {
+                RenderSkillTooltip(hMagic, (int)mouse.X, (int)mouse.Y);
+            }
+        }
+    }
+
+    private void RenderSkillTooltip(ClientMagicData magic, int mouseX, int mouseY)
+    {
+        string mName = string.IsNullOrEmpty(magic.Def.MagicName) ? MagicProtocolManager.GetMagicName(magic.Def.MagicId) : magic.Def.MagicName;
+        string jobStr = magic.Def.Job switch { 0 => "战士专属武技", 1 => "法师自然秘法", 2 => "道士神圣道术", _ => "通用技能" };
+        string desc = string.IsNullOrEmpty(magic.Def.Desc)
+            ? $"经典传奇【{mName}】，威力: {magic.Def.Power}~{magic.Def.MaxPower}，消耗 MP: {magic.Def.Spell}。"
+            : magic.Def.Desc;
+
+        int ttW = 240;
+        int ttH = 100;
+        int ttX = mouseX + 15;
+        int ttY = mouseY + 10;
+
+        Raylib.DrawRectangle(ttX, ttY, ttW, ttH, new Color(12, 10, 8, 245));
+        Raylib.DrawRectangleLinesEx(new Rectangle(ttX, ttY, ttW, ttH), 1, Color.Gold);
+
+        FontManager.DrawTextWithShadow(mName, ttX + 10, ttY + 8, 13, Color.Gold, Color.Black);
+        FontManager.DrawText(jobStr, ttX + 100, ttY + 9, 10, Color.LightGray);
+        FontManager.DrawText($"当前等级: Lv.{magic.Level} (修炼点: {magic.CurTrain})", ttX + 10, ttY + 28, 10, Color.Yellow);
+        FontManager.DrawText($"魔法消耗: {magic.Def.Spell} MP | 威力: {magic.Def.Power}~{magic.Def.MaxPower}", ttX + 10, ttY + 44, 10, Color.Lime);
+
+        // 简要说明
+        FontManager.DrawText(desc, ttX + 10, ttY + 62, 10, Color.LightGray);
+        FontManager.DrawText("提示: 按 F1~F8 绑定快捷键", ttX + 10, ttY + 80, 9, Color.Orange);
     }
 }
 

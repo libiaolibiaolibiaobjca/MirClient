@@ -186,6 +186,7 @@ public static class ProtocolConsts
     public const ushort SM_MAGICFIREFAIL        = 639;  // 法术释放失败
     public const ushort SM_ADDMAGIC             = 210;  // 习得新技能下发
     public const ushort SM_SENDMYMAGIC          = 211;  // 下发角色已掌握法术列表
+    public const ushort SM_DELMAGIC             = 212;  // 遗忘/移除技能法术下发
     public const ushort SM_MERCHANTSAY          = 643;  // NPC 对话正文与脚本选项下发
     public const ushort SM_MERCHANTDLGCLOSE     = 644;  // 关闭 NPC 对话框
     public const ushort SM_SENDNOTICE          = 658;  // 服务端下发登入公告与准备就绪
