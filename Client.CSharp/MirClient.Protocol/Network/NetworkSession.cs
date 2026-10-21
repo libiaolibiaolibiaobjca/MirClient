@@ -46,7 +46,7 @@ public class NetworkSession : IDisposable
 
     // 消息通知事件
     public event Action<string>? OnLog;
-    public event Action<DefaultMessage, string>? OnGamePacket;
+    public event Action<DefaultMessage, string?>? OnGamePacket;
     public event Action<int, int, string>? OnMerchantSay;
     public event Action? OnMerchantClose;
     public event Action<int, int, string>? OnBagItems;
@@ -576,7 +576,7 @@ public class NetworkSession : IDisposable
                 case ProtocolConsts.SM_BAGITEMS:
                 {
                     OnBagItems?.Invoke(e.Header.Recog, e.Header.Series, e.Payload ?? "");
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -603,7 +603,7 @@ public class NetworkSession : IDisposable
                 {
                     var chatEvt = ChatProtocolManager.ParseHearMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -612,7 +612,7 @@ public class NetworkSession : IDisposable
                 {
                     var chatEvt = ChatProtocolManager.ParseSystemMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -621,7 +621,7 @@ public class NetworkSession : IDisposable
                 {
                     var chatEvt = ChatProtocolManager.ParseGroupMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -630,7 +630,7 @@ public class NetworkSession : IDisposable
                 {
                     var chatEvt = ChatProtocolManager.ParseGuildMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -639,7 +639,7 @@ public class NetworkSession : IDisposable
                 {
                     var chatEvt = ChatProtocolManager.ParseWhisperMessage(e.Header, e.Payload);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 
@@ -653,7 +653,7 @@ public class NetworkSession : IDisposable
                         ChatChannel.Shout,
                         e.Header.Param);
                     OnChatMessage?.Invoke(chatEvt);
-                    OnGamePacket?.Invoke(e.Header, e.Payload);
+                    OnGamePacket?.Invoke(e.Header, e.Payload ?? "");
                     break;
                 }
 

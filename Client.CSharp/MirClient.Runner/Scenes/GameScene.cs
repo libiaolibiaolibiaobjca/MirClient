@@ -1759,7 +1759,7 @@ public class GameScene : IScene
         }
 
         // 若处于联机状态，向网关上报攻击指令 CM_HIT
-        if (_engine.NetworkSession.IsConnected)
+        if (_engine.NetworkSession?.IsConnected == true)
         {
             DefaultMessage hitMsg = new(
                 ident: ProtocolConsts.CM_HIT,
@@ -4190,8 +4190,9 @@ public class GameScene : IScene
         return false;
     }
 
-    private void HandleServerGamePacket(DefaultMessage header, string payload)
+    private void HandleServerGamePacket(DefaultMessage header, string? payload)
     {
+        payload ??= string.Empty;
         switch (header.Ident)
         {
             case ProtocolConsts.SM_LOGON:
@@ -5030,7 +5031,8 @@ public class GameScene : IScene
             FontManager.DrawTextWithShadow($"【 随身金币: {_gold:N0} 】 点击商品即可购买", winX + 16, winY + 36, 12, Color.Lime, Color.Black);
 
             int goodsY = winY + 62;
-            for (int i = 0; i < _activeNpcProfile.Goods.Count; i++)
+            int goodsCount = _activeNpcProfile?.Goods?.Count ?? 0;
+            for (int i = 0; i < goodsCount && _activeNpcProfile != null; i++)
             {
                 var g = _activeNpcProfile.Goods[i];
                 Rectangle itemRect = new(winX + 16, goodsY, winW - 32, 42);

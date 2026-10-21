@@ -90,6 +90,8 @@ public class SocialManager
     public event Action? OnMasterListUpdated;
     public event Action<string>? OnSocialNotice;
 
+    public void PostSocialNotice(string notice) => OnSocialNotice?.Invoke(notice);
+
     public void Reset()
     {
         Reputation = 0;
